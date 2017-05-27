@@ -1,0 +1,7 @@
+/.ninja_*
+/build.ninja
+/size_test
+/unrez
+/libunrez.*
+*.d
+*.o
