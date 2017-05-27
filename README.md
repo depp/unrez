@@ -1,6 +1,8 @@
 # UnRez
 
-UnRez extracts data from Macintosh resource forks and converts it to modern formats. UnRez also converts QuickDraw PICT files to PNG.
+UnRez extracts data from Macintosh resource forks and converts it to modern formats. UnRez UnRez also converts QuickDraw PICT files to PNG.
+
+UnRez does not need to run on a Macintosh. It can extract resources from MacBinary or AppleDouble files transparently.
 
 ## Examples
 
