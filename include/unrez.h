@@ -501,42 +501,6 @@ enum {
 void unrez_pict_decode(const struct unrez_pict_callbacks *cb, const void *data,
                        size_t size);
 
-#if 0
-struct unrez_pictop {
-    uint16_t opcode;
-
-};
-
-/*
- * An unrez_image is a bitmap image.
- */
-struct unrez_picture {
-    /* Image dimensions and image data. */
-    int32_t width;
-    int32_t height;
-    int32_t rowbytes;
-    void *data;
-    /* The image color palette, if the image is paletted. */
-    struct unrez_color *colors;
-    int32_t color_count;
-};
-
-/*
- * unrez_image_destroy destroys an image and frees associated memory.
- */
-void unrez_image_destroy(struct unrez_image *img);
-
-/*
- * unrez_pict_read decodes a QuickDraw PICT image from a data buffer to an
- * image. If err_msg is not NULL, it may be filled in with a more detailed error
- * message whenthe function fails. If this is done, the error message should be
- * freed afterwards.
- */
-int unrez_pict_read(struct unrez_image *img, const void *data, size_t size,
-                    char **err_msg);
-
-#endif
-
 #ifdef __cplusplus
 }
 #endif
