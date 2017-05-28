@@ -85,7 +85,7 @@ void write_png(int dirfd, const char *name, const struct unrez_pixdata *pix) {
     height = pix->bounds.bottom - pix->bounds.top;
     width = pix->bounds.right - pix->bounds.left;
     rowbytes = pix->rowBytes;
-    switch (pix->dataPixelSize) {
+    switch (pix->pixelSize) {
     case 8:
         ctype = PNG_COLOR_TYPE_PALETTE;
         col_count = pix->ctSize;
@@ -108,12 +108,12 @@ void write_png(int dirfd, const char *name, const struct unrez_pixdata *pix) {
         ctype = PNG_COLOR_TYPE_RGB;
         break;
     default:
-        dief(EX_SOFTWARE, "unknown pixel size: %d", pix->dataPixelSize);
+        dief(EX_SOFTWARE, "unknown pixel size: %d", pix->pixelSize);
     }
     png_set_IHDR(png, info, width, height, 8, ctype, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
     png_write_info(png, info);
-    switch (pix->dataPixelSize) {
+    switch (pix->pixelSize) {
     case 32:
         png_set_filler(png, 0, PNG_FILLER_AFTER);
         break;

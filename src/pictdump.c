@@ -170,10 +170,16 @@ static int pict2png_opcode(void *ctx, int opcode, const void *data,
     return 0;
 }
 
-static int pict2png_pixels(void *ctx, int opcode,
-                           const struct unrez_pixdata *pix) {
+static int pict2png_pixels(void *ctx, int opcode, struct unrez_pixdata *pix) {
     struct pict2png *pp = ctx;
+    int err;
     (void)opcode;
+    if (pix->pixelSize == 16) {
+        err = unrez_pixdata_16to32(pix);
+        if (err != 0) {
+            die_errf(EX_SOFTWARE, err, "16to32");
+        }
+    }
     write_png(has_dir ? dirfd : AT_FDCWD, pp->outfile, pix);
     pp->success = 1;
     return 0;
@@ -248,7 +254,7 @@ static int dump_opcode(void *ctx, int opcode, const void *data, size_t size) {
     return 0;
 }
 
-static int dump_pixels(void *ctx, int opcode, const struct unrez_pixdata *pix) {
+static int dump_pixels(void *ctx, int opcode, struct unrez_pixdata *pix) {
     (void)ctx;
     show_opcode(opcode);
     printf("    rowBytes = %d\n", pix->rowBytes);

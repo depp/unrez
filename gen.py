@@ -66,6 +66,7 @@ error.c
 forkedfile.c
 macbinary.c
 pict.c
+pixdata.c
 resourcefork.c
 '''.split()
 

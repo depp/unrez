@@ -346,7 +346,10 @@ static void read_pixmap(struct unrez_pixdata *m, const uint8_t *p) {
      *  46   4  pmExt (ignored)
      * Total size: 50
      *
-     * For this function, however, we skip baseAddr and start with rowBytes.
+     * For this function, however, we skip baseAddr and start with
+     * rowBytes. Note that the high bit of rowBytes is used to tell the
+     * difference between monochrome BitMap and color PixMap structures, so we
+     * strip it out here.
      */
     m->rowBytes = read_i16(p + 0) & 0x7fff;
     read_rect(&m->bounds, p + 2);
@@ -360,22 +363,32 @@ static void read_pixmap(struct unrez_pixdata *m, const uint8_t *p) {
     m->cmpSize = read_i16(p + 32);
 }
 
+/*
+ * Error return codes for the unpacking functions, unpack_XXX(), and bitmap
+ * decoding functions, read_XXX(). These are not used by the opcode handlers,
+ * data_XXX(), because those functions can signal errors through the callbacks.
+ */
 enum {
+    /* Unexpected end of file. */
     kErrEof = -1,
+    /* Bad pixel data. */
     kErrBadPixels = -2,
-    kErrMemory = -3,
+    /* See errno. */
+    kErrErrno = -3
 };
 
-/* Decode 8-bit run-length encoded data. */
-static int decode_8(uint8_t *dptr, uint8_t *dend, const uint8_t *sptr,
+/*
+ * Decode 8-bit run-length encoded data. This uses the PackBits compression
+ * scheme.
+ *
+ * See "TN1023: Understanding PackBits" (no longer accessible)
+ * http://developer.apple.com/technotes/tn/tn1023.html
+ */
+static int unpack_8(uint8_t *dptr, uint8_t *dend, const uint8_t *sptr,
                     const uint8_t *send) {
     int control, runsize;
-    /*
-     * See "TN1023: Understanding PackBits" (no longer accessible)
-     * http://developer.apple.com/technotes/tn/tn1023.html
-     */
     while (sptr < send) {
-        control = (signed char)*sptr;
+        control = (int8_t)*sptr;
         sptr++;
         if (control > 0) {
             /* Literal data follows. */
@@ -408,17 +421,21 @@ static int decode_8(uint8_t *dptr, uint8_t *dend, const uint8_t *sptr,
     return 0;
 }
 
-/* Decode 16-bit run-length encoded data. */
-static int decode_16(uint16_t *dptr, uint16_t *dend, const uint8_t *sptr,
+/*
+ * Decode 16-bit run-length encoded data. This is similar to the PackBits
+ * compression scheme for 8-bit data, but operates on 16-bit units instead of
+ * 8-bit units. The control bytes are still 8-bit, however. This function will
+ * also convert data to native byte order.
+ *
+ * See "TN1023: Understanding PackBits" (no longer accessible)
+ * http://developer.apple.com/technotes/tn/tn1023.html
+ */
+static int unpack_16(uint16_t *dptr, uint16_t *dend, const uint8_t *sptr,
                      const uint8_t *send) {
     int control, runsize, i;
     uint16_t v;
-    /*
-     * See "TN1023: Understanding PackBits" (no longer accessible)
-     * http://developer.apple.com/technotes/tn/tn1023.html
-     */
     while (sptr < send) {
-        control = (signed char)*sptr;
+        control = (int8_t)*sptr;
         sptr++;
         if (control > 0) {
             /* Literal data follows. */
@@ -456,236 +473,182 @@ static int decode_16(uint16_t *dptr, uint16_t *dend, const uint8_t *sptr,
     return 0;
 }
 
-/* Read an 8-bit packed image. */
-static ptrdiff_t read_packed_8(int height, int width, uint8_t *dptr,
-                               int drowbytes, const uint8_t *sstart,
-                               const uint8_t *send, int srowbytes) {
-    const uint8_t *sptr = sstart;
-    int rowsize, y, r;
-    (void)width;
-    for (y = 0; y < height; y++) {
-        if (srowbytes <= 250) {
-            if (send - sptr < 1) {
+/* Read an 8-bit packed image (pack type 0). */
+static ptrdiff_t read_packed_8(int rowcount, int rowbytes, uint8_t *dest,
+                               const uint8_t *start, const uint8_t *end) {
+    const uint8_t *ptr = start;
+    int rowsize, i, r;
+    for (i = 0; i < rowcount; i++) {
+        if (rowbytes <= 250) {
+            if (end - ptr < 1) {
                 return kErrEof;
             }
-            rowsize = *sptr;
-            sptr++;
+            rowsize = *ptr;
+            ptr++;
         } else {
-            if (send - sptr < 2) {
+            if (end - ptr < 2) {
                 return kErrEof;
             }
-            rowsize = read_u16(sptr);
-            sptr += 2;
+            rowsize = read_u16(ptr);
+            ptr += 2;
         }
-        if (send - sptr < rowsize) {
+        if (end - ptr < rowsize) {
             return kErrEof;
         }
-        r = decode_8(dptr, dptr + srowbytes, sptr, sptr + rowsize);
+        r = unpack_8(dest + i * rowbytes, dest + (i + 1) * rowbytes, ptr,
+                     ptr + rowsize);
         if (r != 0) {
             return r;
         }
-        memset(dptr + srowbytes, 0, drowbytes - srowbytes);
-        sptr += rowsize;
-        dptr += drowbytes;
+        ptr += rowsize;
     }
-    return sptr - sstart;
+    return ptr - start;
 }
 
-static ptrdiff_t read_unpacked_8(int height, int width, uint8_t *dptr,
-                                 int drowbytes, const uint8_t *sstart,
-                                 const uint8_t *send, int srowbytes) {
-    const uint8_t *sptr = sstart;
-    int y;
-    (void)width;
-    if (send - sstart < srowbytes * height) {
+/* Read an 8-bit unpacked image (pack type 1). */
+static ptrdiff_t read_unpacked_8(int rowcount, int rowbytes, uint8_t *dest,
+                                 const uint8_t *start, const uint8_t *end) {
+    int size = rowbytes * rowcount;
+    if (end - start < size) {
         return kErrEof;
     }
-    for (y = 0; y < height; y++) {
-        memcpy(dptr, sptr, srowbytes);
-        memset(dptr + srowbytes, 0, drowbytes - srowbytes);
-        sptr += srowbytes;
-        dptr += drowbytes;
-    }
-    return sptr - sstart;
+    memcpy(dest, start, size);
+    return size;
 }
 
-static void unpack_16(uint8_t *dest, const uint16_t *src, int width) {
-    unsigned v;
-    int x;
-    for (x = 0; x < width; x++) {
-        v = src[x];
-        dest[x * 4 + 0] = ((v >> 7) & 0xf8) | ((v >> 12) & 7);
-        dest[x * 4 + 1] = ((v >> 2) & 0xf8) | ((v >> 7) & 7);
-        dest[x * 4 + 2] = ((v << 3) & 0xf8) | ((v >> 2) & 7);
-        dest[x * 4 + 3] = 0;
-    }
-}
-
-static ptrdiff_t read_packed_16(int height, int width, uint8_t *dptr,
-                                int drowbytes, const uint8_t *sstart,
-                                const uint8_t *send, int srowbytes) {
-    const uint8_t *sptr = sstart;
-    uint16_t *tmp;
-    int rowsize, y, r;
-    /* srowbytes always even */
-    tmp = malloc(srowbytes);
-    if (tmp == NULL) {
-        return kErrMemory;
-    }
-    for (y = 0; y < height; y++) {
-        if (srowbytes <= 250) {
-            if (send - sptr < 1) {
-                r = kErrEof;
-                goto done;
+/* Read a 16-bit packed image (pack type 3). */
+static ptrdiff_t read_packed_16(int rowcount, int rowbytes, uint16_t *dest,
+                                const uint8_t *start,
+                                const uint8_t *end) {
+    const uint8_t *ptr = start;
+    int rowpix, rowsize, i, r;
+    rowpix = rowbytes >> 1;
+    for (i = 0; i < rowcount; i++) {
+        if (rowbytes <= 250) {
+            if (end - ptr < 1) {
+                return kErrEof;
             }
-            rowsize = *sptr;
-            sptr++;
+            rowsize = *ptr;
+            ptr++;
         } else {
-            if (send - sptr < 2) {
-                r = kErrEof;
-                goto done;
+            if (end - ptr < 2) {
+                return kErrEof;
             }
-            rowsize = read_u16(sptr);
-            sptr += 2;
+            rowsize = read_u16(ptr);
+            ptr += 2;
         }
-        if (send - sptr < rowsize) {
-            r = kErrEof;
-            goto done;
+        if (end - ptr < rowsize) {
+            return kErrEof;
         }
-        r = decode_16(tmp, tmp + srowbytes / 2, sptr, sptr + rowsize);
+        r = unpack_16(dest + i * rowpix, dest + (i + 1) * rowpix, ptr,
+                      ptr + rowsize);
         if (r != 0) {
-            goto done;
+            return r;
         }
-        unpack_16(dptr, tmp, width);
-        memset(dptr + width * 4, 0, drowbytes - width * 4);
-        sptr += rowsize;
-        dptr += drowbytes;
+        ptr += rowsize;
     }
-    r = 0;
-    goto done;
-
-done:
-    free(tmp);
-    return r == 0 ? sptr - sstart : r;
+    return ptr - start;
 }
 
-static ptrdiff_t read_unpacked_16(int height, int width, uint8_t *dptr,
-                                  int drowbytes, const uint8_t *sstart,
-                                  const uint8_t *send, int srowbytes) {
-    const uint8_t *sptr = sstart;
-    uint16_t *tmp;
-    int y, x, psize;
-    (void)psize;
-    if (send - sstart < srowbytes * height) {
+/* Read a 16-bit unpacked image (pack type 1). */
+static ptrdiff_t read_unpacked_16(int rowcount, int rowbytes, uint16_t *dest,
+                                  const uint8_t *start, const uint8_t *end) {
+    int pixcount, size, i;
+    size = rowbytes * rowcount;
+    pixcount = size >> 1;
+    if (end - start < size) {
         return kErrEof;
     }
-    /* srowbytes always even */
-    tmp = malloc(srowbytes);
-    if (tmp == NULL) {
-        return kErrMemory;
+    for (i = 0; i < pixcount; i++) {
+        dest[i] = read_u16(start + i * 2);
     }
-    psize = width * 4;
-    for (y = 0; y < height; y++) {
-        for (x = 0; x < width; x++) {
-            tmp[x] = read_u16(sptr + x * 2);
-        }
-        sptr += srowbytes;
-        unpack_16(dptr, tmp, width);
-        memset(dptr + psize, 0, drowbytes - psize);
-        dptr += drowbytes;
-    }
-    free(tmp);
-    return sptr - sstart;
+    return size;
 }
 
-static void unpack_32(uint8_t *dest, const uint8_t *src, int width) {
+/*
+ * Unshuffle shuffled 32-bit pixels. The pixels are stored by row, component,
+ * then column. A row of pixels will be stored with all the red components, then
+ * the green, then blue. This makes the compression more efficient.
+ */
+static void unshuffle_32(uint8_t *dest, const uint8_t *src, int n) {
     int cmp, x;
-    /*
-     * Unpacked 32-bit pixels are stored by row, component, then
-     * column. So each row has all the red samples, all the green, then
-     * all the blue.
-     */
     for (cmp = 0; cmp < 3; ++cmp) {
-        for (x = 0; x < width; x++) {
-            dest[x * 4 + cmp] = src[cmp * width + x];
+        for (x = 0; x < n; x++) {
+            dest[x * 4 + cmp] = src[cmp * n + x];
         }
     }
-    for (x = 0; x < width; x++) {
+    for (x = 0; x < n; x++) {
         dest[x * 4 + 3] = 0;
     }
 }
 
-static ptrdiff_t read_unpacked_32(int height, int width, uint8_t *dptr,
-                                  int drowbytes, const uint8_t *sstart,
-                                  const uint8_t *send, int srowbytes) {
-    const uint8_t *sptr = sstart;
-    int y, psize;
-    (void)psize;
-    if (send - sstart < srowbytes * height) {
+/* Read a 32-bit unpacked image (pack type 1). */
+static ptrdiff_t read_unpacked_32(int rowcount, int rowbytes, uint8_t *dest,
+                                  const uint8_t *start, const uint8_t *end) {
+    int i, rowpix, srcrowbytes;
+    rowpix = rowbytes >> 2;
+    srcrowbytes = rowpix * 3;
+    if (end - start < srcrowbytes * rowcount) {
         return kErrEof;
     }
-    psize = width * 4;
-    for (y = 0; y < height; y++) {
-        unpack_32(dptr, sptr, width);
-        memset(dptr + psize, 0, drowbytes - psize);
-        sptr += srowbytes;
-        dptr += drowbytes;
+    for (i = 0; i < rowcount; i++) {
+        unshuffle_32(dest + i * rowbytes, start + i * srcrowbytes, rowpix);
     }
-    return sptr - sstart;
+    return srcrowbytes * rowcount;
 }
 
-static ptrdiff_t read_packed_32(int height, int width, uint8_t *dptr,
-                                int drowbytes, const uint8_t *sstart,
-                                const uint8_t *send, int srowbytes) {
-    const uint8_t *sptr = sstart;
+/* Read a 32-bit packed image (pack type 4). */
+static ptrdiff_t read_packed_32(int rowcount, int rowbytes, uint8_t *dest,
+                                const uint8_t *start, const uint8_t *end) {
+    const uint8_t *ptr = start;
     uint8_t *tmp;
-    int rowsize, y, r;
-    tmp = malloc(srowbytes);
+    int rowpix, srcrowbytes, rowsize, i, r;
+    rowpix = rowbytes >> 2;
+    srcrowbytes = rowpix * 3;
+    tmp = malloc(srcrowbytes);
     if (tmp == NULL) {
-        return kErrMemory;
+        return kErrErrno;
     }
-    for (y = 0; y < height; y++) {
-        if (srowbytes <= 250) {
-            if (send - sptr < 1) {
-                return kErrEof;
+    for (i = 0; i < rowcount; i++) {
+        if (rowbytes <= 250) {
+            if (end - ptr < 1) {
+                r = kErrEof;
+                goto done;
             }
-            rowsize = *sptr;
-            sptr++;
+            rowsize = *ptr;
+            ptr++;
         } else {
-            if (send - sptr < 2) {
-                return kErrEof;
+            if (end - ptr < 2) {
+                r = kErrEof;
+                goto done;
             }
-            rowsize = read_u16(sptr);
-            sptr += 2;
+            rowsize = read_u16(ptr);
+            ptr += 2;
         }
-        r = decode_8(tmp, tmp + srowbytes, sptr, sptr + rowsize);
+        r = unpack_8(tmp, tmp + srcrowbytes, ptr, ptr + rowsize);
         if (r != 0) {
             goto done;
         }
-        unpack_32(dptr, tmp, width);
-        memset(dptr + width * 4, 0, drowbytes - width * 4);
-        sptr += rowsize;
-        dptr += drowbytes;
+        unshuffle_32(dest + i * rowbytes, tmp, rowpix);
+        ptr += rowsize;
     }
     r = 0;
     goto done;
 
 done:
     free(tmp);
-    return r == 0 ? sptr - sstart : r;
+    return r == 0 ? ptr - start : r;
 }
 
 static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
                                  int version, int opcode, const uint8_t *start,
                                  const uint8_t *end) {
-    void *pixdata = NULL;
     char buf[128];
     const uint8_t *ptr = start;
     struct unrez_pixdata pix = {0};
     struct unrez_color *colors = NULL;
     int success = 0;
-    int i, n, r, width, height, srcRowBytes, destRowBytes;
-    size_t size;
+    int i, n, r, rowcount, rowbytes, align;
     ptrdiff_t pr;
 
     (void)version;
@@ -780,98 +743,56 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
     pix.mode = read_i16(ptr + 16);
     ptr += 18;
 
-    srcRowBytes = pix.rowBytes;
-    if ((srcRowBytes & 1) != 0 || srcRowBytes <= 0 || srcRowBytes > 0x4000) {
+    align = pix.pixelSize == 32 ? 3 : 1;
+    rowbytes = pix.rowBytes;
+    if ((rowbytes & align) != 0 || rowbytes <= 0 || rowbytes > 0x4000) {
         goto bad_rowbytes;
     }
-    height = pix.bounds.bottom - pix.bounds.top;
-    width = pix.bounds.right - pix.bounds.left;
-    if (height <= 0 || width <= 0) {
-        snprintf(buf, sizeof(buf),
-                 "invalid bounds: top=%d, left=%d, bottom=%d, right=%d",
-                 pix.bounds.top, pix.bounds.left, pix.bounds.bottom,
-                 pix.bounds.right);
-        cb->error(cb->ctx, kUnrezErrInvalid, opcode, buf);
+    rowcount = pix.bounds.bottom - pix.bounds.top;
+    if (rowcount <= 0) {
+        cb->error(cb->ctx, kUnrezErrInvalid, opcode, "invalid bounds");
         goto done;
     }
-    switch (pix.pixelSize) {
-    case 8:
-        pix.dataPixelSize = 8;
-        destRowBytes = (width + 3) & ~3;
-        if (srcRowBytes < width) {
-            goto bad_rowbytes;
-        }
-        break;
-    case 16:
-        pix.dataPixelSize = 32;
-        destRowBytes = width * 4;
-        if (srcRowBytes < width * 2) {
-            goto bad_rowbytes;
-        }
-        break;
-    case 32:
-        pix.dataPixelSize = 32;
-        destRowBytes = width * 4;
-        srcRowBytes = (srcRowBytes * 3) >> 2;
-        if (srcRowBytes < width * 3) {
-            goto bad_rowbytes;
-        }
-        break;
-    default:
-        goto bad_pixelsize;
-    }
-    if ((unsigned)destRowBytes > (unsigned)-1 / height) {
-        cb->error(cb->ctx, kUnrezErrInvalid, opcode, "image too large");
-        goto done;
-    }
-    size = (size_t)destRowBytes * (size_t)height;
-    pixdata = malloc(size);
-    if (pixdata == NULL) {
+    /* Can't overflow 32-bit signed int. */
+    pix.data = malloc(rowbytes * rowcount);
+    if (pix.data == NULL) {
         cb->error(cb->ctx, errno, opcode, NULL);
         goto done;
     }
-    pix.data = pixdata;
-    pix.rowBytes = destRowBytes;
 
     switch (pix.rowBytes < 8 ? 1 : pix.packType) {
     case 0:
         if (pix.pixelSize != 8) {
-            goto bad_pixelsize;
+            goto bad_packtype;
         }
-        pr = read_packed_8(height, width, pixdata, destRowBytes, ptr, end,
-                           srcRowBytes);
+        pr = read_packed_8(rowcount, rowbytes, pix.data, ptr, end);
         break;
     case 1:
         switch (pix.pixelSize) {
         case 8:
-            pr = read_unpacked_8(height, width, pixdata, destRowBytes, ptr, end,
-                                 srcRowBytes);
+            pr = read_unpacked_8(rowcount, rowbytes, pix.data, ptr, end);
             break;
         case 16:
-            pr = read_unpacked_16(height, width, pixdata, destRowBytes, ptr,
-                                  end, srcRowBytes);
+            pr = read_unpacked_16(rowcount, rowbytes, pix.data, ptr, end);
             break;
         case 32:
-            pr = read_unpacked_32(height, width, pixdata, destRowBytes, ptr,
-                                  end, srcRowBytes);
+            pr = read_unpacked_32(rowcount, rowbytes, pix.data, ptr, end);
             break;
         default:
-            goto bad_pixelsize;
+            goto bad_packtype;
         }
         break;
     case 3:
         if (pix.pixelSize != 16) {
-            goto bad_pixelsize;
+            goto bad_packtype;
         }
-        pr = read_packed_16(height, width, pixdata, destRowBytes, ptr, end,
-                            srcRowBytes);
+        pr = read_packed_16(rowcount, rowbytes, pix.data, ptr, end);
         break;
     case 4:
         if (pix.pixelSize != 32) {
-            goto bad_pixelsize;
+            goto bad_packtype;
         }
-        pr = read_packed_32(height, width, pixdata, destRowBytes, ptr, end,
-                            srcRowBytes);
+        pr = read_packed_32(rowcount, rowbytes, pix.data, ptr, end);
         break;
     default:
         snprintf(buf, sizeof(buf), "unsupported packType value: %d",
@@ -887,8 +808,8 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
         case kErrBadPixels:
             cb->error(cb->ctx, kUnrezErrInvalid, opcode, "invalid pixel data");
             goto done;
-        case kErrMemory:
-            cb->error(cb->ctx, ENOMEM, opcode, NULL);
+        case kErrErrno:
+            cb->error(cb->ctx, errno, opcode, NULL);
             goto done;
         }
     }
@@ -900,8 +821,7 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
     goto done;
 
 done:
-    free(colors);
-    free(pixdata);
+    unrez_pixdata_destroy(&pix);
     return success ? ptr - start : -1;
 
 eof:
@@ -909,12 +829,16 @@ eof:
     goto done;
 
 bad_rowbytes:
-    snprintf(buf, sizeof(buf), "bad rowBytes value: %d", pix.rowBytes);
+    snprintf(buf, sizeof(buf),
+             "bad number of bytes per row: pixelSize=%d, rowBytes=%d",
+             pix.pixelSize, pix.rowBytes);
     cb->error(cb->ctx, kUnrezErrInvalid, opcode, buf);
     goto done;
 
-bad_pixelsize:
-    snprintf(buf, sizeof(buf), "bad pixelSize value: %d", pix.pixelSize);
+bad_packtype:
+    snprintf(buf, sizeof(buf),
+             "bad pixel packing type: pixelSize=%d, packType=%d", pix.pixelSize,
+             pix.packType);
     cb->error(cb->ctx, kUnrezErrInvalid, opcode, buf);
     goto done;
 }

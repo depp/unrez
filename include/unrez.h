@@ -434,8 +434,7 @@ struct unrez_pixdata {
     /*
      * Unpacked pixel data, and the size of each unpacked pixel in bits.
      */
-    const void *data;
-    int dataPixelSize;
+    void *data;
     /*
      * QuickDraw PixMap structure. The field names are the same.
      */
@@ -463,6 +462,19 @@ struct unrez_pixdata {
 };
 
 /*
+ * unrez_pixdata_destroy frees memory associated with pixel data.
+ */
+void unrez_pixdata_destroy(struct unrez_pixdata *pix);
+
+/*
+ * unrez_pixdata_16to32 converts 16-bit pixel data to 32-bit pixel data. The
+ * packed 5-bit pixel components are expanded to 8 bits, replicating the high
+ * bits for the low bits. Returns 0 on success, or a non-zero error code on
+ * failure.
+ */
+int unrez_pixdata_16to32(struct unrez_pixdata *pix);
+
+/*
  * An unrez_pict_callbacks contains callbacks for processing a QuickDraw
  * picture. All callbacks must be set. Callbacks that return an integer should
  * return 0 to continue processing the picture, or nonzero to stop.
@@ -474,8 +486,13 @@ struct unrez_pict_callbacks {
     int (*header)(void *ctx, int version, const struct unrez_rect *frame);
     /* Handle a picture opcode. */
     int (*opcode)(void *ctx, int opcode, const void *data, size_t size);
-    /* Handle pixel data in a picture. */
-    int (*pixels)(void *ctx, int opcode, const struct unrez_pixdata *pix);
+    /*
+     * Handle pixel data in a picture. The pixel data will be destroyed after
+     * the callback returns by calling unrez_pixdata_destroy. If you want to
+     * keep the pixel data after the function returns, you set the pixel data
+     * pointers to NULL so they won't be freed.
+     */
+    int (*pixels)(void *ctx, int opcode, struct unrez_pixdata *pix);
     /*
      * Handle an error in the picture data. If the error happens outside an
      * opcode, then opcode will be -1. The error message may be NULL, but the
