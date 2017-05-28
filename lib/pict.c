@@ -119,7 +119,7 @@ static ptrdiff_t pict_eof(const struct unrez_pict_callbacks *cb, int opcode) {
     return -1;
 }
 
-static void read_rect(struct unrez_rect *r, const unsigned char *p) {
+static void read_rect(struct unrez_rect *r, const uint8_t *p) {
     r->top = read_i16(p);
     r->left = read_i16(p + 2);
     r->bottom = read_i16(p + 4);
@@ -127,9 +127,8 @@ static void read_rect(struct unrez_rect *r, const unsigned char *p) {
 }
 
 static ptrdiff_t data_version(const struct unrez_pict_callbacks *cb,
-                              int version, int opcode,
-                              const unsigned char *start,
-                              const unsigned char *end) {
+                              int version, int opcode, const uint8_t *start,
+                              const uint8_t *end) {
     int r;
     if (start == end) {
         return pict_eof(cb, opcode);
@@ -146,8 +145,8 @@ static ptrdiff_t data_version(const struct unrez_pict_callbacks *cb,
 }
 
 static ptrdiff_t data_end(const struct unrez_pict_callbacks *cb, int version,
-                          int opcode, const unsigned char *start,
-                          const unsigned char *end) {
+                          int opcode, const uint8_t *start,
+                          const uint8_t *end) {
     (void)cb;
     (void)version;
     (void)opcode;
@@ -157,9 +156,9 @@ static ptrdiff_t data_end(const struct unrez_pict_callbacks *cb, int version,
 }
 
 static ptrdiff_t data_data16(const struct unrez_pict_callbacks *cb, int version,
-                             int opcode, const unsigned char *start,
-                             const unsigned char *end) {
-    const unsigned char *ptr = start;
+                             int opcode, const uint8_t *start,
+                             const uint8_t *end) {
+    const uint8_t *ptr = start;
     int size, r;
     (void)version;
     if (end - ptr < 2) {
@@ -183,9 +182,9 @@ static ptrdiff_t data_data16(const struct unrez_pict_callbacks *cb, int version,
 }
 
 static ptrdiff_t data_data32(const struct unrez_pict_callbacks *cb, int version,
-                             int opcode, const unsigned char *start,
-                             const unsigned char *end) {
-    const unsigned char *ptr = start;
+                             int opcode, const uint8_t *start,
+                             const uint8_t *end) {
+    const uint8_t *ptr = start;
     int size, r;
     (void)version;
     if (end - ptr < 4) {
@@ -209,10 +208,9 @@ static ptrdiff_t data_data32(const struct unrez_pict_callbacks *cb, int version,
 }
 
 static ptrdiff_t data_longcomment(const struct unrez_pict_callbacks *cb,
-                                  int version, int opcode,
-                                  const unsigned char *start,
-                                  const unsigned char *end) {
-    const unsigned char *ptr = start;
+                                  int version, int opcode, const uint8_t *start,
+                                  const uint8_t *end) {
+    const uint8_t *ptr = start;
     int size, r;
     (void)version;
     if (end - ptr < 4) {
@@ -236,8 +234,8 @@ static ptrdiff_t data_longcomment(const struct unrez_pict_callbacks *cb,
 }
 
 static ptrdiff_t data_region(const struct unrez_pict_callbacks *cb, int version,
-                             int opcode, const unsigned char *start,
-                             const unsigned char *end) {
+                             int opcode, const uint8_t *start,
+                             const uint8_t *end) {
     int size, r;
     (void)version;
     if (end - start < 2) {
@@ -264,9 +262,8 @@ static ptrdiff_t data_region(const struct unrez_pict_callbacks *cb, int version,
 }
 
 static ptrdiff_t data_pattern(const struct unrez_pict_callbacks *cb,
-                              int version, int opcode,
-                              const unsigned char *start,
-                              const unsigned char *end) {
+                              int version, int opcode, const uint8_t *start,
+                              const uint8_t *end) {
     (void)version;
     (void)start;
     (void)end;
@@ -275,8 +272,8 @@ static ptrdiff_t data_pattern(const struct unrez_pict_callbacks *cb,
 }
 
 static ptrdiff_t data_text(const struct unrez_pict_callbacks *cb, int version,
-                           int opcode, const unsigned char *start,
-                           const unsigned char *end) {
+                           int opcode, const uint8_t *start,
+                           const uint8_t *end) {
     (void)version;
     (void)start;
     (void)end;
@@ -286,8 +283,7 @@ static ptrdiff_t data_text(const struct unrez_pict_callbacks *cb, int version,
 
 static ptrdiff_t data_not_determined(const struct unrez_pict_callbacks *cb,
                                      int version, int opcode,
-                                     const unsigned char *start,
-                                     const unsigned char *end) {
+                                     const uint8_t *start, const uint8_t *end) {
     (void)version;
     (void)start;
     (void)end;
@@ -297,9 +293,8 @@ static ptrdiff_t data_not_determined(const struct unrez_pict_callbacks *cb,
 }
 
 static ptrdiff_t data_polygon(const struct unrez_pict_callbacks *cb,
-                              int version, int opcode,
-                              const unsigned char *start,
-                              const unsigned char *end) {
+                              int version, int opcode, const uint8_t *start,
+                              const uint8_t *end) {
     (void)version;
     (void)start;
     (void)end;
@@ -313,7 +308,7 @@ enum {
 };
 
 #if 0
-static void read_bitmap(struct unrez_pixdata *m, const unsigned char *p) {
+static void read_bitmap(struct unrez_pixdata *m, const uint8_t *p) {
     /*
      * The older cousin to PixMap for B&W graphics.
      * off len
@@ -329,7 +324,7 @@ static void read_bitmap(struct unrez_pixdata *m, const unsigned char *p) {
 }
 #endif
 
-static void read_pixmap(struct unrez_pixdata *m, const unsigned char *p) {
+static void read_pixmap(struct unrez_pixdata *m, const uint8_t *p) {
     /*
      * From Imaging With QuickDraw p 4-10 "The pixel map"
      * Or struct PixMap in QuickDraw.h
@@ -372,8 +367,8 @@ enum {
 };
 
 /* Decode 8-bit run-length encoded data. */
-static int decode_8(unsigned char *dptr, unsigned char *dend,
-                    const unsigned char *sptr, const unsigned char *send) {
+static int decode_8(uint8_t *dptr, uint8_t *dend, const uint8_t *sptr,
+                    const uint8_t *send) {
     int control, runsize;
     /*
      * See "TN1023: Understanding PackBits" (no longer accessible)
@@ -414,8 +409,8 @@ static int decode_8(unsigned char *dptr, unsigned char *dend,
 }
 
 /* Decode 16-bit run-length encoded data. */
-static int decode_16(uint16_t *dptr, uint16_t *dend, const unsigned char *sptr,
-                     const unsigned char *send) {
+static int decode_16(uint16_t *dptr, uint16_t *dend, const uint8_t *sptr,
+                     const uint8_t *send) {
     int control, runsize, i;
     uint16_t v;
     /*
@@ -462,10 +457,10 @@ static int decode_16(uint16_t *dptr, uint16_t *dend, const unsigned char *sptr,
 }
 
 /* Read an 8-bit packed image. */
-static ptrdiff_t read_packed_8(int height, int width, unsigned char *dptr,
-                               int drowbytes, const unsigned char *sstart,
-                               const unsigned char *send, int srowbytes) {
-    const unsigned char *sptr = sstart;
+static ptrdiff_t read_packed_8(int height, int width, uint8_t *dptr,
+                               int drowbytes, const uint8_t *sstart,
+                               const uint8_t *send, int srowbytes) {
+    const uint8_t *sptr = sstart;
     int rowsize, y, r;
     (void)width;
     for (y = 0; y < height; y++) {
@@ -496,10 +491,10 @@ static ptrdiff_t read_packed_8(int height, int width, unsigned char *dptr,
     return sptr - sstart;
 }
 
-static ptrdiff_t read_unpacked_8(int height, int width, unsigned char *dptr,
-                                 int drowbytes, const unsigned char *sstart,
-                                 const unsigned char *send, int srowbytes) {
-    const unsigned char *sptr = sstart;
+static ptrdiff_t read_unpacked_8(int height, int width, uint8_t *dptr,
+                                 int drowbytes, const uint8_t *sstart,
+                                 const uint8_t *send, int srowbytes) {
+    const uint8_t *sptr = sstart;
     int y;
     (void)width;
     if (send - sstart < srowbytes * height) {
@@ -514,7 +509,7 @@ static ptrdiff_t read_unpacked_8(int height, int width, unsigned char *dptr,
     return sptr - sstart;
 }
 
-static void unpack_16(unsigned char *dest, const uint16_t *src, int width) {
+static void unpack_16(uint8_t *dest, const uint16_t *src, int width) {
     unsigned v;
     int x;
     for (x = 0; x < width; x++) {
@@ -526,10 +521,10 @@ static void unpack_16(unsigned char *dest, const uint16_t *src, int width) {
     }
 }
 
-static ptrdiff_t read_packed_16(int height, int width, unsigned char *dptr,
-                                int drowbytes, const unsigned char *sstart,
-                                const unsigned char *send, int srowbytes) {
-    const unsigned char *sptr = sstart;
+static ptrdiff_t read_packed_16(int height, int width, uint8_t *dptr,
+                                int drowbytes, const uint8_t *sstart,
+                                const uint8_t *send, int srowbytes) {
+    const uint8_t *sptr = sstart;
     uint16_t *tmp;
     int rowsize, y, r;
     /* srowbytes always even */
@@ -574,10 +569,10 @@ done:
     return r == 0 ? sptr - sstart : r;
 }
 
-static ptrdiff_t read_unpacked_16(int height, int width, unsigned char *dptr,
-                                  int drowbytes, const unsigned char *sstart,
-                                  const unsigned char *send, int srowbytes) {
-    const unsigned char *sptr = sstart;
+static ptrdiff_t read_unpacked_16(int height, int width, uint8_t *dptr,
+                                  int drowbytes, const uint8_t *sstart,
+                                  const uint8_t *send, int srowbytes) {
+    const uint8_t *sptr = sstart;
     uint16_t *tmp;
     int y, x, psize;
     (void)psize;
@@ -603,8 +598,7 @@ static ptrdiff_t read_unpacked_16(int height, int width, unsigned char *dptr,
     return sptr - sstart;
 }
 
-static void unpack_32(unsigned char *dest, const unsigned char *src,
-                      int width) {
+static void unpack_32(uint8_t *dest, const uint8_t *src, int width) {
     int cmp, x;
     /*
      * Unpacked 32-bit pixels are stored by row, component, then
@@ -621,10 +615,10 @@ static void unpack_32(unsigned char *dest, const unsigned char *src,
     }
 }
 
-static ptrdiff_t read_unpacked_32(int height, int width, unsigned char *dptr,
-                                  int drowbytes, const unsigned char *sstart,
-                                  const unsigned char *send, int srowbytes) {
-    const unsigned char *sptr = sstart;
+static ptrdiff_t read_unpacked_32(int height, int width, uint8_t *dptr,
+                                  int drowbytes, const uint8_t *sstart,
+                                  const uint8_t *send, int srowbytes) {
+    const uint8_t *sptr = sstart;
     int y, psize;
     (void)psize;
     if (send - sstart < srowbytes * height) {
@@ -640,11 +634,11 @@ static ptrdiff_t read_unpacked_32(int height, int width, unsigned char *dptr,
     return sptr - sstart;
 }
 
-static ptrdiff_t read_packed_32(int height, int width, unsigned char *dptr,
-                                int drowbytes, const unsigned char *sstart,
-                                const unsigned char *send, int srowbytes) {
-    const unsigned char *sptr = sstart;
-    unsigned char *tmp;
+static ptrdiff_t read_packed_32(int height, int width, uint8_t *dptr,
+                                int drowbytes, const uint8_t *sstart,
+                                const uint8_t *send, int srowbytes) {
+    const uint8_t *sptr = sstart;
+    uint8_t *tmp;
     int rowsize, y, r;
     tmp = malloc(srowbytes);
     if (tmp == NULL) {
@@ -682,12 +676,11 @@ done:
 }
 
 static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
-                                 int version, int opcode,
-                                 const unsigned char *start,
-                                 const unsigned char *end) {
+                                 int version, int opcode, const uint8_t *start,
+                                 const uint8_t *end) {
     void *pixdata = NULL;
     char buf[128];
-    const unsigned char *ptr = start;
+    const uint8_t *ptr = start;
     struct unrez_pixdata pix = {0};
     struct unrez_color *colors = NULL;
     int success = 0;
@@ -927,9 +920,8 @@ bad_pixelsize:
 }
 
 static ptrdiff_t data_quicktime(const struct unrez_pict_callbacks *cb,
-                                int version, int opcode,
-                                const unsigned char *start,
-                                const unsigned char *end) {
+                                int version, int opcode, const uint8_t *start,
+                                const uint8_t *end) {
     (void)version;
     (void)start;
     (void)end;
@@ -940,8 +932,7 @@ static ptrdiff_t data_quicktime(const struct unrez_pict_callbacks *cb,
 
 typedef ptrdiff_t (*data_handler_t)(const struct unrez_pict_callbacks *cb,
                                     int version, int opcode,
-                                    const unsigned char *start,
-                                    const unsigned char *end);
+                                    const uint8_t *start, const uint8_t *end);
 
 static const data_handler_t kDataHandlers[] = {
     data_version,        data_end,     data_data16,     data_data32,
@@ -951,7 +942,7 @@ static const data_handler_t kDataHandlers[] = {
 
 void unrez_pict_decode(const struct unrez_pict_callbacks *cb, const void *data,
                        size_t size) {
-    const unsigned char *ptr = data, *end = ptr + size;
+    const uint8_t *ptr = data, *end = ptr + size;
     int version, r, opcode, opdata;
     struct unrez_rect frame;
     const struct opcode_range *range;
