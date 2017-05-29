@@ -220,15 +220,14 @@ static ptrdiff_t data_region(const struct unrez_pict_callbacks *cb, int version,
         return pict_eof(cb, opcode);
     }
     size = read_u16(start);
-    if (size < 2) {
+    if (size < 10) {
         cb->error(cb->ctx, kUnrezErrInvalid, opcode, "invalid region size");
         return -1;
     }
-    if (size != 10) {
-        cb->error(cb->ctx, kUnrezErrUnsupported, opcode,
-                  "unsupported region format");
-        return -1;
-    }
+    /*
+     * Imaging With QuickDraw p. 2-7, "The data for more complex regions is
+     * stored in a proprietary format."
+     */
     if (size > end - start) {
         return pict_eof(cb, opcode);
     }
