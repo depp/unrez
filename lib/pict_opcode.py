@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 import sys
 
+# There is a little bit of guesswork in this. The Imaging With QuickDraw book
+# lists $02FF as the "Version" opcode, but it's really the data for the $0011
+# payload. It also gives it a size of 2. This contradicts the decompiled picture
+# in listing A-5 on p. A-23, which gives it no data at all, and also contradicts
+# the note on p. A-5, which says that the amount of data should be 4
+# bytes. Saying that it isn't an opcode at all seems like the least
+# contradictory option.
+
 # Blank lines correspond to page breaks in Imaging With QuickDraw.
 OPCODES = '''\
 0000 NOP 0
@@ -139,18 +147,9 @@ OPCODES = '''\
 00B0-00CF Reserved 0
 00D0-00FE Reserved Data32
 00FF OpEndPic End
-0100-01FF Reserved 2
-0200 Reserved 4
-02FF Version 2
-0BFF Reserved 22
-0C00 HeaderOp 24
-0C01 Reserved 24
-7F00-7FFF Reserved 254
-8000-80FF Reserved 0
-8100-81FF Reserved Data32
-8200 CompressedQuickTime QuickTime
-8201 UncompressedQuickTime QuickTime
-FFFF Reserved Data32
+0C00 HeaderOp 0
+8200 CompressedQuickTime 0
+8201 UncompressedQuickTime 0
 '''
 
 def main():
@@ -205,7 +204,8 @@ def main():
                 tbl_data[i] = data
                 tbl_name[i] = name_idx
         else:
-            tbl_ext.append((start, end, name_idx, data))
+            assert start == end
+            tbl_ext.append((start, name_idx))
 
     assert opset.issuperset(range(256))
 
@@ -260,11 +260,11 @@ def main():
         start = end
     write('\n};\n')
 
-    write('\nstatic const struct opcode_range kOpcodeRanges[] = {\n')
+    write('\nstatic const struct extended_opcode kExtendedOpcodes[] = {\n')
     comma = ''
     for row in tbl_ext:
         write(comma)
-        write('{{0x{:04x}, 0x{:04x}, {}, {}}}'.format(*row))
+        write('{{0x{:04x}, {}}}'.format(*row))
         comma = ',\n'
     write('\n};\n')
 

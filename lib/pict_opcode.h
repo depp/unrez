@@ -110,7 +110,6 @@ kOp_DirectBitsRgn,
 kOp_ShortComment = 0x00a0,
 kOp_LongComment,
 kOp_OpEndPic = 0x00ff,
-kOp_Version = 0x02ff,
 kOp_HeaderOp = 0x0c00,
 kOp_CompressedQuickTime = 0x8200,
 kOp_UncompressedQuickTime
@@ -226,7 +225,6 @@ static const char kOpcodeNames[] =
 "ShortComment\0"
 "LongComment\0"
 "OpEndPic\0"
-"Version\0"
 "HeaderOp\0"
 "CompressedQuickTime\0"
 "UncompressedQuickTime";
@@ -317,17 +315,8 @@ static const short kOpcodeDataTable[256] = {
 -kTypeData32-1,-kTypeData32-1,-kTypeData32-1,-kTypeEnd-1
 };
 
-static const struct opcode_range kOpcodeRanges[] = {
-{0x0100, 0x01ff, 0, 2},
-{0x0200, 0x0200, 0, 4},
-{0x02ff, 0x02ff, 1152, 2},
-{0x0bff, 0x0bff, 0, 22},
-{0x0c00, 0x0c00, 1160, 24},
-{0x0c01, 0x0c01, 0, 24},
-{0x7f00, 0x7fff, 0, 254},
-{0x8000, 0x80ff, 0, 0},
-{0x8100, 0x81ff, 0, -kTypeData32-1},
-{0x8200, 0x8200, 1169, -kTypeQuickTime-1},
-{0x8201, 0x8201, 1189, -kTypeQuickTime-1},
-{0xffff, 0xffff, 0, -kTypeData32-1}
+static const struct extended_opcode kExtendedOpcodes[] = {
+{0x0c00, 1152},
+{0x8200, 1161},
+{0x8201, 1181}
 };

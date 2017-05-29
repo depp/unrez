@@ -31,19 +31,10 @@
   http://developer.apple.com/documentation/mac/QuickDraw/QuickDraw-458.html
 */
 
-/* Definitions for a range of opcodes. */
-struct opcode_range {
-    /* Closed (inclusive) range of opcode values. */
-    uint16_t start;
-    uint16_t end;
-    /* Index into kOpcodeNames, plus 1. If 0, then the opcode has no name. */
-    uint16_t name;
-    /*
-     * Describes the data payload. If zero or positive, the opcode data has a
-     * fixed size, and this value is the size. If negative, then it is equal to
-     * -1-x, where x is one of the data enumerations below.
-     */
-    int16_t data;
+/* Name mapping for an extended (>$ff) opcode. */
+struct extended_opcode {
+    uint16_t opcode;
+    uint16_t name_index;
 };
 
 /*
@@ -73,36 +64,23 @@ enum {
     kTypePolygon,
     /* Pixel data. */
     kTypePixelData,
-    /* Embedded QuickTime image */
-    kTypeQuickTime
 };
 
 #include "pict_opcode.h"
 
-static const struct opcode_range *find_opcode(int opcode) {
-    int i = 0, n = sizeof(kOpcodeRanges) / sizeof(*kOpcodeRanges);
-    for (; i < n; i++) {
-        if (kOpcodeRanges[i].end >= opcode) {
-            if (kOpcodeRanges[i].start <= opcode) {
-                return &kOpcodeRanges[i];
-            }
-            return NULL;
-        }
-    }
-    return NULL;
-}
-
 const char *unrez_pict_opname(int opcode) {
-    int name_index;
-    const struct opcode_range *range;
+    int name_index = 0;
+    const struct extended_opcode *ep, *ee;
     if (opcode >= 0 && opcode < 256) {
         name_index = kOpcodeNameTable[opcode];
     } else {
-        range = find_opcode(opcode);
-        if (range != NULL) {
-            name_index = range->name;
-        } else {
-            name_index = 0;
+        ep = kExtendedOpcodes;
+        ee = ep + sizeof(kExtendedOpcodes) / sizeof(*kExtendedOpcodes);
+        for (; ep != ee; ep++) {
+            if (ep->opcode == opcode) {
+                name_index = ep->name_index;
+                break;
+            }
         }
     }
     if (name_index == 0) {
@@ -518,8 +496,7 @@ static ptrdiff_t read_unpacked_8(int rowcount, int rowbytes, uint8_t *dest,
 
 /* Read a 16-bit packed image (pack type 3). */
 static ptrdiff_t read_packed_16(int rowcount, int rowbytes, uint16_t *dest,
-                                const uint8_t *start,
-                                const uint8_t *end) {
+                                const uint8_t *start, const uint8_t *end) {
     const uint8_t *ptr = start;
     int rowpix, rowsize, i, r;
     rowpix = rowbytes >> 1;
@@ -843,17 +820,6 @@ bad_packtype:
     goto done;
 }
 
-static ptrdiff_t data_quicktime(const struct unrez_pict_callbacks *cb,
-                                int version, int opcode, const uint8_t *start,
-                                const uint8_t *end) {
-    (void)version;
-    (void)start;
-    (void)end;
-    cb->error(cb->ctx, kUnrezErrUnsupported, opcode,
-              "embedded QuickTime images not supported");
-    return -1;
-}
-
 typedef ptrdiff_t (*data_handler_t)(const struct unrez_pict_callbacks *cb,
                                     int version, int opcode,
                                     const uint8_t *start, const uint8_t *end);
@@ -861,7 +827,7 @@ typedef ptrdiff_t (*data_handler_t)(const struct unrez_pict_callbacks *cb,
 static const data_handler_t kDataHandlers[] = {
     data_version,        data_end,     data_data16,     data_data32,
     data_longcomment,    data_region,  data_pattern,    data_text,
-    data_not_determined, data_polygon, data_pixel_data, data_quicktime,
+    data_not_determined, data_polygon, data_pixel_data,
 };
 
 void unrez_pict_decode(const struct unrez_pict_callbacks *cb, const void *data,
@@ -869,7 +835,6 @@ void unrez_pict_decode(const struct unrez_pict_callbacks *cb, const void *data,
     const uint8_t *ptr = data, *end = ptr + size;
     int version, r, opcode, opdata;
     struct unrez_rect frame;
-    const struct opcode_range *range;
     data_handler_t handler;
     ptrdiff_t hr = 0;
 
@@ -932,14 +897,18 @@ void unrez_pict_decode(const struct unrez_pict_callbacks *cb, const void *data,
             ptr += 2;
             if (opcode <= 0xff) {
                 opdata = kOpcodeDataTable[opcode];
+            } else if (opcode <= 0x80ff) {
+                /*
+                 * We consider $02FF "Version" to not be an opcode, it seems to
+                 * make the most sense this way.
+                 */
+                opdata = (opcode >> 7) & 0xfe;
             } else {
-                range = find_opcode(opcode);
-                if (range == NULL) {
-                    cb->error(cb->ctx, kUnrezErrInvalid, opcode,
-                              "unknown opcode");
-                    return;
-                }
-                opdata = range->data;
+                /*
+                 * This is a guess. It's not spelled out, but it seems to be
+                 * implied by the opcode table.
+                 */
+                opdata = -1 - kTypeData32;
             }
         }
         if (opdata >= 0) {
