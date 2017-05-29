@@ -32,6 +32,4 @@ This should create the `unrez` executable, and `libunrez.a`. Documentation for t
 
 Only a subset of QuickDraw pictures are supported. This is because QuickDraw pictures can be very complex. Internally, they consist of a series of opcodes for drawing commands. You could create a picture in code by recording drawing commands and having QuickDraw play them back later.
 
-Almost none of that is supported. Unrez looks for an opcode with a bitmap, and extracts the bitmap.
-
-Unrez also only supports certain bitmap opcodes. There is no support for monochrome bitmaps. However, Unrez can correctly extract 8-bit, 16-bit, and 32-bit bitmaps, both packed and unpacked.
+Almost none of that is supported. Unrez looks for an opcode with a bitmap, and extracts the bitmap. UnRez has been tested with 1-bit, 8-bit, 16-bit, and 32-bit images.
