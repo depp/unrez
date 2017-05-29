@@ -2,6 +2,7 @@
 import argparse
 import pathlib
 import re
+import shlex
 import subprocess
 import sys
 
@@ -37,7 +38,7 @@ def escape(s, *, is_output=False):
     return SPECIAL.sub(repl, s)
 
 def escapeflags(flags):
-    return ' '.join(escape(flag) for flag in flags)
+    return ' '.join(shlex.quote(flag).replace('$', '$$') for flag in flags)
 
 RULES = '''\
 rule gen
