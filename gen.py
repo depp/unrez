@@ -74,7 +74,7 @@ EXE_TARGETS = [
 ('unrez',
  ['cflags = $unrez_cflags'],
  ['libs = $unrez_libs'],
- ['libunrez.a'], '''
+ [], '''
 cat.c
 info.c
 ls.c
@@ -145,11 +145,11 @@ def run():
             png_libs=png_libs,
         ))
 
-        objs = []
+        lib_objs = []
         pic_objs = []
         for src in LIB_SOURCES:
             src = pathlib.Path(src)
-            obj = pathlib.Path('obj/lib', src.with_suffix('.o'))
+            lib_obj = pathlib.Path('obj/lib', src.with_suffix('.o'))
             pic_obj = pathlib.Path('obj/pic', src.with_suffix('.o'))
             src = srcdir.joinpath('lib', src)
             fp.write(
@@ -158,17 +158,17 @@ def run():
                 '  cflags = $pic_cflags\n'
                 .format(
                     src=src,
-                    obj=obj,
+                    obj=lib_obj,
                     pic_obj=pic_obj,
                 ))
-            objs.append(obj)
+            lib_objs.append(lib_obj)
             pic_objs.append(pic_obj)
         fp.write(
-            'build libunrez.a: ar {objs}\n'
+            'build libunrez.a: ar {lib_objs}\n'
             'build libunrez.so: link {pic_objs}\n'
             '  ldflags = -shared -fpic $ldflags\n'
             .format(
-                objs=' '.join(str(x) for x in objs),
+                lib_objs=' '.join(str(x) for x in lib_objs),
                 pic_objs=' '.join(str(x) for x in pic_objs),
             ))
 
@@ -183,6 +183,8 @@ def run():
                 for cvar in cvars:
                     fp.write('  {}\n'.format(cvar))
                 objs.append(obj)
+            if target == 'unrez':
+                objs.extend(lib_objs)
             fp.write('build {}: link {}\n'.format(
                 target, ' '.join(str(obj) for obj in objs + extra)))
             for lvar in lvars:
