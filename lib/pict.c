@@ -644,8 +644,11 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
      * Decode the operation header.
      */
     switch (opcode) {
-    /* case kOp_BitsRect: */
-    /* case kOp_BitsRgn: */
+    case kOp_BitsRect:
+    case kOp_BitsRgn:
+        has_ctable = 1;
+        has_region = opcode == kOp_BitsRgn;
+        break;
     case kOp_PackBitsRect:
     case kOp_PackBitsRgn:
         has_ctable = 1;
