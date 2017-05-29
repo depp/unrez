@@ -90,7 +90,8 @@ const char *unrez_pict_opname(int opcode) {
 }
 
 static const char kErrUnexpectedEof[] = "unexpected end of file",
-                  kErrInvalidLength[] = "invalid length";
+                  kErrInvalidLength[] = "invalid length",
+                  kErrRegionSize[] = "invalid region size";
 
 static ptrdiff_t pict_eof(const struct unrez_pict_callbacks *cb, int opcode) {
     cb->error(cb->ctx, kUnrezErrInvalid, opcode, kErrUnexpectedEof);
@@ -221,7 +222,7 @@ static ptrdiff_t data_region(const struct unrez_pict_callbacks *cb, int version,
     }
     size = read_u16(start);
     if (size < 10) {
-        cb->error(cb->ctx, kUnrezErrInvalid, opcode, "invalid region size");
+        cb->error(cb->ctx, kUnrezErrInvalid, opcode, kErrRegionSize);
         return -1;
     }
     /*
@@ -624,6 +625,7 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
     struct unrez_pixdata pix = {0};
     struct unrez_color *colors = NULL;
     int success = 0;
+    int has_ctable, has_region;
     int i, n, r, rowcount, rowbytes, align;
     ptrdiff_t pr;
 
@@ -645,19 +647,33 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
     /* case kOp_BitsRect: */
     /* case kOp_BitsRgn: */
     case kOp_PackBitsRect:
-        /*
-         * len
-         *  46  PixMap, no baseAddr
-         * >=8  ColorTable (len = 12 + 8 * ctSize)
-         *   8  srcRect
-         *   8  destRect
-         *   2  mode
-         */
-        if (end - ptr < 46 + 8) {
+    case kOp_PackBitsRgn:
+        has_ctable = 1;
+        has_region = opcode == kOp_PackBitsRgn;
+        break;
+    case kOp_DirectBitsRect:
+    case kOp_DirectBitsRgn:
+        /*  baseAddr = $000000FF for compatibility */
+        if (end - ptr < 4) {
             goto eof;
         }
-        read_pixmap(&pix, ptr);
-        ptr += 46;
+        ptr += 4;
+        has_ctable = 0;
+        has_region = opcode == kOp_DirectBitsRgn;
+        break;
+    default:
+        cb->error(cb->ctx, kUnrezErrInvalid, opcode,
+                  "unsupported pixel data opcode");
+        goto done;
+    }
+
+    if (end - ptr < 46) {
+        goto eof;
+    }
+    read_pixmap(&pix, ptr);
+    ptr += 46;
+
+    if (has_ctable) {
         /*
          * ColorTable
          *   ctSeed: int32
@@ -668,14 +684,17 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
          *   r, g, b: uint16
          * Total size: 8 + 8 * ctSize
          */
-        n = read_i16(ptr + 6) + 1;
+        if (end - ptr < 8) {
+            goto eof;
+        }
+        n = read_u16(ptr + 6) + 1;
         ptr += 8;
         if (n < 0 || n > 256) {
             snprintf(buf, sizeof(buf), "invalid color table size: %d", n);
             cb->error(cb->ctx, kUnrezErrInvalid, opcode, buf);
             goto done;
         }
-        if (end - ptr < 8 * n + 18) {
+        if (end - ptr < 8 * n) {
             goto eof;
         }
         colors = malloc(sizeof(*pix.ctTable) * n);
@@ -691,33 +710,27 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
         }
         pix.ctSize = n;
         pix.ctTable = colors;
-        break;
-    /* case kOp_PackBitsRgn: */
-    case kOp_DirectBitsRect:
-        /*
-         * len
-         *  50  PixMap, with baseAddr = $000000FF for compatibility
-         *   8  srcRect
-         *   8  destRect
-         *   2  mode
-         */
-        if (end - ptr < 68) {
-            goto eof;
-        }
-        read_pixmap(&pix, ptr + 4);
-        ptr += 50;
-        break;
-    /* case kOp_DirectBitsRgn: */
-    default:
-        cb->error(cb->ctx, kUnrezErrInvalid, opcode,
-                  "unsupported pixel data opcode");
-        goto done;
     }
 
+    if (end - ptr < 18) {
+        goto eof;
+    }
     read_rect(&pix.srcRect, ptr);
     read_rect(&pix.destRect, ptr + 8);
     pix.mode = read_i16(ptr + 16);
     ptr += 18;
+
+    if (has_region) {
+        if (end - ptr < 2) {
+            goto eof;
+        }
+        n = read_u16(ptr);
+        if (n < 10) {
+            cb->error(cb->ctx, kUnrezErrInvalid, opcode, kErrRegionSize);
+            goto done;
+        }
+        ptr += n;
+    }
 
     align = pix.pixelSize == 32 ? 3 : 1;
     rowbytes = pix.rowBytes;
