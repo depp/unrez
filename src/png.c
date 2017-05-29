@@ -59,7 +59,7 @@ void write_png(int dirfd, const char *name, const struct unrez_pixdata *pix) {
     struct wpng w;
     png_struct *png;
     png_info *info;
-    int width, height, rowbytes, ctype, i, col_count;
+    int width, height, rowbytes, ctype, depth, i, col_count;
     const unsigned char *data;
     png_byte **rows = NULL;
     png_color *col = NULL;
@@ -86,8 +86,13 @@ void write_png(int dirfd, const char *name, const struct unrez_pixdata *pix) {
     width = pix->bounds.right - pix->bounds.left;
     rowbytes = pix->rowBytes;
     switch (pix->pixelSize) {
+    case 1:
+        ctype = PNG_COLOR_TYPE_GRAY;
+        depth = 1;
+        break;
     case 8:
         ctype = PNG_COLOR_TYPE_PALETTE;
+        depth = 8;
         col_count = pix->ctSize;
         if (col_count == 0) {
             dief(EX_SOFTWARE, "missing pallette for 8-bit image");
@@ -106,15 +111,19 @@ void write_png(int dirfd, const char *name, const struct unrez_pixdata *pix) {
         break;
     case 32:
         ctype = PNG_COLOR_TYPE_RGB;
+        depth = 8;
         break;
     default:
         dief(EX_SOFTWARE, "unknown pixel size: %d", pix->pixelSize);
     }
-    png_set_IHDR(png, info, width, height, 8, ctype, PNG_INTERLACE_NONE,
+    png_set_IHDR(png, info, width, height, depth, ctype, PNG_INTERLACE_NONE,
                  PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
     png_write_info(png, info);
-    switch (pix->pixelSize) {
-    case 32:
+    switch (ctype) {
+    case PNG_COLOR_TYPE_GRAY:
+        png_set_invert_mono(png);
+        break;
+    case PNG_COLOR_TYPE_RGB:
         png_set_filler(png, 0, PNG_FILLER_AFTER);
         break;
     }

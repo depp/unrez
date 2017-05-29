@@ -280,12 +280,6 @@ static ptrdiff_t data_polygon(const struct unrez_pict_callbacks *cb,
     return -1;
 }
 
-enum {
-    kBitMapSize = 14,
-    kPixMapSize = 50,
-};
-
-#if 0
 static void read_bitmap(struct unrez_pixdata *m, const uint8_t *p) {
     /*
      * The older cousin to PixMap for B&W graphics.
@@ -300,7 +294,6 @@ static void read_bitmap(struct unrez_pixdata *m, const uint8_t *p) {
     m->rowBytes = read_i16(p + 0);
     read_rect(&m->bounds, p + 2);
 }
-#endif
 
 static void read_pixmap(struct unrez_pixdata *m, const uint8_t *p) {
     /*
@@ -325,12 +318,8 @@ static void read_pixmap(struct unrez_pixdata *m, const uint8_t *p) {
      * Total size: 50
      *
      * For this function, however, we skip baseAddr and start with
-     * rowBytes. Note that the high bit of rowBytes is used to tell the
-     * difference between monochrome BitMap and color PixMap structures, so we
-     * strip it out here.
+     * rowBytes. First call read_bitmap to get the common headers.
      */
-    m->rowBytes = read_i16(p + 0) & 0x7fff;
-    read_rect(&m->bounds, p + 2);
     m->packType = read_i16(p + 12);
     m->packSize = read_i32(p + 14);
     m->hRes = read_i32(p + 18);
@@ -626,10 +615,8 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
     struct unrez_color *colors = NULL;
     int success = 0;
     int has_ctable, has_region;
-    int i, n, r, rowcount, rowbytes, align;
+    int i, n, r, rowcount, rowbytes, align, packtype;
     ptrdiff_t pr;
-
-    (void)version;
 
     /*
      * These opcodes record a blit operation, known as CopyBits in
@@ -648,14 +635,20 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
     case kOp_BitsRgn:
         has_ctable = 1;
         has_region = opcode == kOp_BitsRgn;
+        packtype = 1;
         break;
     case kOp_PackBitsRect:
     case kOp_PackBitsRgn:
         has_ctable = 1;
         has_region = opcode == kOp_PackBitsRgn;
+        packtype = 0;
         break;
     case kOp_DirectBitsRect:
     case kOp_DirectBitsRgn:
+        if (version < 2) {
+            cb->error(cb->ctx, kUnrezErrInvalid, opcode,
+                      "opcode not valid in this picture version");
+        }
         /*  baseAddr = $000000FF for compatibility */
         if (end - ptr < 4) {
             goto eof;
@@ -663,6 +656,7 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
         ptr += 4;
         has_ctable = 0;
         has_region = opcode == kOp_DirectBitsRgn;
+        packtype = -1;
         break;
     default:
         cb->error(cb->ctx, kUnrezErrInvalid, opcode,
@@ -670,11 +664,31 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
         goto done;
     }
 
-    if (end - ptr < 46) {
+    if (end - ptr < 10) {
         goto eof;
     }
-    read_pixmap(&pix, ptr);
-    ptr += 46;
+    read_bitmap(&pix, ptr);
+    if ((pix.rowBytes & 0x8000) == 0) {
+        if (packtype == -1) {
+            goto bad_rowbytes;
+        }
+        pix.packType = packtype;
+        pix.pixelSize = 1;
+        pix.cmpCount = 1;
+        pix.cmpSize = 1;
+        ptr += 10;
+        has_ctable = 0;
+    } else {
+        if (version < 2) {
+            goto bad_rowbytes;
+        }
+        if (end - ptr < 46) {
+            goto eof;
+        }
+        pix.rowBytes = pix.rowBytes & 0x7fff;
+        read_pixmap(&pix, ptr);
+        ptr += 46;
+    }
 
     if (has_ctable) {
         /*
@@ -754,7 +768,7 @@ static ptrdiff_t data_pixel_data(const struct unrez_pict_callbacks *cb,
 
     switch (pix.rowBytes < 8 ? 1 : pix.packType) {
     case 0:
-        if (pix.pixelSize != 8) {
+        if (pix.pixelSize > 8) {
             goto bad_packtype;
         }
         pr = read_packed_8(rowcount, rowbytes, pix.data, ptr, end);
