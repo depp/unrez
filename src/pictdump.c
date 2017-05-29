@@ -295,6 +295,7 @@ static void pict_data(const char *file) {
     if (err != 0) {
         die_errf(EX_OSERR, err, "%s", file);
     }
+    unrez_forkedfile_close(&forks);
     data = fdata.data;
     size = fdata.size;
     if (!opt_no_header) {
@@ -313,7 +314,7 @@ static void pict_data(const char *file) {
         pict2png_raw(file, 0, 0, data, size);
         break;
     }
-    unrez_forkedfile_close(&forks);
+    unrez_data_destroy(&fdata);
 }
 
 static void pict_rsrc1(const char *file, struct unrez_resourcefork *rfork,
