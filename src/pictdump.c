@@ -8,19 +8,16 @@
 
 #include "defs.h"
 
-#include <fcntl.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <sysexits.h>
+#include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include <string.h>
+#include <sysexits.h>
 
-enum {
-    kToolDump = 1,
-    kTool2Png
-};
+enum { kToolDump = 1, kTool2Png };
 
 static int tool;
 
@@ -304,7 +301,7 @@ static void pict_data(const char *file) {
         if (size < kUnrezPictHeaderSize) {
             dief(EX_DATAERR, "%s: missing header", file);
         }
-        data = (const char *) data + kUnrezPictHeaderSize;
+        data = (const char *)data + kUnrezPictHeaderSize;
         size -= kUnrezPictHeaderSize;
     }
     switch (tool) {
