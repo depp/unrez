@@ -21,7 +21,7 @@ enum { kToolDump = 1, kTool2Png };
 
 static int tool;
 
-static const unsigned char kPictCode[4] = {'P', 'I', 'C', 'T'};
+static const uint32_t kPictCode = UNREZ_TYPE('P', 'I', 'C', 'T');
 
 enum {
     kModeData,

@@ -20,19 +20,23 @@ static void cat_usage(FILE *fp) {
 void cat_exec(int argc, char **argv) {
     struct unrez_resourcefork rfork;
     const char *file;
-    unsigned char type_code[4];
+    uint32_t type_code;
     int res_id, err;
     const void *data;
     uint32_t size, pos;
     ssize_t amt;
-    char stype[TYPE_WIDTH];
+    char stype[kUnrezTypeWidth];
     if (argc != 3) {
         errorf("expected three arguments");
         cat_usage(stderr);
         exit(EX_USAGE);
     }
     file = argv[0];
-    parse_type(type_code, argv[1]);
+    err = unrez_type_fromstring(&type_code, argv[1]);
+    if (err != 0) {
+        dief(EX_USAGE, "invalid type code: '%s'", argv[1]);
+    }
+    unrez_type_tostring(stype, sizeof(stype), type_code);
     res_id = parse_id(argv[2]);
     err = unrez_resourcefork_open(&rfork, file);
     if (err != 0) {
@@ -40,7 +44,7 @@ void cat_exec(int argc, char **argv) {
     }
     err = unrez_resourcefork_findrsrc(&rfork, type_code, res_id, &data, &size);
     if (err != 0) {
-        sprint_type(stype, sizeof(stype), type_code);
+        unrez_type_tostring(stype, sizeof(stype), type_code);
         die_errf(EX_DATAERR, err, "could not load resource %s #%d", stype,
                  res_id);
     }

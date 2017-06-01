@@ -66,9 +66,11 @@ data.c
 error.c
 forkedfile.c
 macbinary.c
+macroman.c
 pict.c
 pixdata.c
 resourcefork.c
+type.c
 '''.split()
 
 EXE_TARGETS = [

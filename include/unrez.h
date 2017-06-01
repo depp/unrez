@@ -39,6 +39,67 @@ enum {
 int unrez_strerror(int code, char *buf, size_t buflen);
 
 /*
+ * unrez_from_macroman converts a string from Mac OS Roman encoding to
+ * UTF-8. The input and output pointers are be updated to point after the last
+ * character successfully converted. The end pointers should point after the
+ * last element in the buffers. This will always succeed if there is enough
+ * space.
+ */
+void unrez_from_macroman(char **outptr, char *outend, const char **inptr,
+                         const char *inend);
+
+/*
+ * unrez_to_macroman converts a string from UTF-8 encoding to Mac OS Roman. The
+ * input can use precomposed or decomposed characters. The input and output
+ * pointers are be updated to point after the last character successfully
+ * converted. The end pointers should point after the last element in the
+ * buffers. If this returns with both input and output unconsumed, then the
+ * remaining input cannot be converted.
+ */
+void unrez_to_macroman(char **outptr, char *outend, const char **inptr,
+                       const char *inend);
+
+/*
+ * UNREZ_TYPE creates a four-character type code from four character
+ * constants. For example, the PICT type code is:
+ *
+ *  UNREZ_TYPE('P', 'I', 'C', 'T')
+ */
+#define UNREZ_TYPE(x1, x2, x3, x4)                                       \
+    ((((uint32_t)(x1) & 0xff) << 24) | (((uint32_t)(x2) & 0xff) << 16) | \
+     (((uint32_t)(x3) & 0xff) << 8) | ((uint32_t)(x4) & 0xff))
+
+enum {
+    /*
+     * Minimum buffer size necessary to format any possible type codes as a
+     * string.
+     */
+    kUnrezTypeWidth = 17
+};
+
+/*
+ * unrez_type_tostring converts a four-character type code to a human-readable
+ * string. Always writes a terminating nul byte to the string, returns the
+ * number of characters that would have been written if the buffer were large
+ * enough (as snprintf does). The result will be converted to UTF-8. If the type
+ * code consists entirely of printable characters, then the string will just be
+ * those characters. Otherwise, the string will use a hexadecimal format, "0x"
+ * followed by exactly eight hexadecimal digits.
+ */
+int unrez_type_tostring(char *buf, size_t bufsize, uint32_t type);
+
+/*
+ * unrez_type_fromstring converts a string to a four-character type code. If the
+ * string is "0x" or "0X" followed by exectly eight hexadecimal digits, it is
+ * treated as a hexadecimal number. Otherwise, the string is treated as the
+ * direct representation of a four-character code. The four character code is
+ * first converted from UTF-8 to the Mac OS Roman character encoding, and packed
+ * into a single 32-bit type code. Type codes shorter than four characters are
+ * right-padded with spaces. Returns 0 on success, or -1 on failure.
+ */
+int unrez_type_fromstring(uint32_t *type, const char *str);
+
+/*
  * An unrez_data is a block of data in memory which it may or may not own. If
  * the structure is zeroed and then data and size are set, then it does not own
  * the data.
@@ -167,8 +228,8 @@ struct unrez_metadata {
     /*
      * Other file metadata.
      */
-    char type_code[4];
-    char creator_code[4];
+    uint32_t type_code;
+    uint32_t creator_code;
     int finder_flags;
     int vpos;
     int hpos;
@@ -296,7 +357,7 @@ struct unrez_resourcefork {
  * type haven't been loaded yet.
  */
 struct unrez_resourcetype {
-    unsigned char type_code[4];
+    uint32_t type_code;
     struct unrez_resource *resources;
     int32_t count;
     int16_t ref_offset;
@@ -364,7 +425,7 @@ void unrez_resourcefork_close(struct unrez_resourcefork *rfork);
  * This is a wrapper around findtype, loadtype, findid, and getrsrc below.
  */
 int unrez_resourcefork_findrsrc(struct unrez_resourcefork *rfork,
-                                const unsigned char *type_code, int rsrc_id,
+                                uint32_t type_code, int rsrc_id,
                                 const void **data, uint32_t *size);
 
 /*
@@ -373,7 +434,7 @@ int unrez_resourcefork_findrsrc(struct unrez_resourcefork *rfork,
  * four-character code.q
  */
 int unrez_resourcefork_findtype(struct unrez_resourcefork *rfork,
-                                const unsigned char *type_code);
+                                uint32_t type_code);
 
 /*
  * unrez_resourcefork_loadtype loads the resource map for a specific

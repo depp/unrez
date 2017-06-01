@@ -86,24 +86,6 @@ extern int opt_bytes;
 int sprint_size(char *buf, size_t bufsize, int64_t size);
 
 /*
- * TYPE_WIDTH is the buffer size guaranteed to hold a formatted resource type.
- */
-#define TYPE_WIDTH 20
-
-/*
- * parse_type parses a string as a resource type, or prints an error and exits
- * the program.
- */
-void parse_type(unsigned char *type_code, const char *s);
-
-/*
- * sprint_type prints a resource type to a string, returning the number of
- * characters that it would have written if the buffer were large enough (like
- * snprintf).
- */
-int sprint_type(char *buf, size_t bufsz, const unsigned char *type_code);
-
-/*
  * parse_id parses a string as a resource ID, or prints an error and exits the
  * program.
  */

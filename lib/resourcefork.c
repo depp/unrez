@@ -115,7 +115,7 @@ int unrez_resourcefork_openmem(struct unrez_resourcefork *rfork,
          * +2 comes from. My current theory is that the docs are incorrect.
          */
         tptr = mptr + toff + 2 + 8 * i;
-        memcpy(t->type_code, tptr, 4);
+        t->type_code = read_u32(tptr);
         t->resources = NULL;
         rmax = read_i16(tptr + 4);
         t->count = rmax >= 0 ? rmax + 1 : 0;
@@ -184,7 +184,7 @@ void unrez_resourcefork_close(struct unrez_resourcefork *rfork) {
 }
 
 int unrez_resourcefork_findrsrc(struct unrez_resourcefork *rfork,
-                                const unsigned char *type_code, int rsrc_id,
+                                uint32_t type_code, int rsrc_id,
                                 const void **data, uint32_t *size) {
     int type_index, rsrc_index, err;
     type_index = unrez_resourcefork_findtype(rfork, type_code);
@@ -204,11 +204,11 @@ int unrez_resourcefork_findrsrc(struct unrez_resourcefork *rfork,
 }
 
 int unrez_resourcefork_findtype(struct unrez_resourcefork *rfork,
-                                const unsigned char *type_code) {
+                                uint32_t type_code) {
     struct unrez_resourcetype *types = rfork->types;
     int32_t i, n = rfork->type_count;
     for (i = 0; i < n; i++) {
-        if (memcmp(type_code, types[i].type_code, 4) == 0) {
+        if (types[i].type_code == type_code) {
             return i;
         }
     }
