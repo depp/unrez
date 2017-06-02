@@ -14,18 +14,22 @@
 #include <string.h>
 
 /*
-Dug this out of Apple's legacy documentation:
-http://developer.apple.com/documentation/mac/MoreToolbox/MoreToolbox-99.html
-checked 2008, unreachable as of 2017
+The resource fork format is found in Inside Macintosh: More Macintosh Toolbox
+https://developer.apple.com/legacy/library/documentation/mac/pdf/MoreMacintoshToolbox.pdf
+Reachable as of 2017
+See p. 1-121.
 
-Resource fork is header + data + map
+A resource fork consists of a header, some data, and a resource map. The header
+is at the start of the fork.
 
 Resource Header, length 16
 off len
- 0   4  data offset
+ 0   4  data offset (from start of fork)
  4   4  map offset
- 8   4  data length
+ 8   4  data length (from start of fork)
 12   4  map length
+
+The
 
 Resource Data entry, length 4 + variable
 off len
@@ -63,7 +67,7 @@ off len
 int unrez_resourcefork_openmem(struct unrez_resourcefork *rfork,
                                const void *data, size_t size) {
     int32_t doff, moff, dsize, msize, tcount, toff, i, rmax;
-    const unsigned char *ptr = data, *mptr, *tptr;
+    const uint8_t *ptr = data, *mptr, *tptr;
     struct unrez_resourcetype *type, *t;
 
     if (size < 16) {
@@ -94,8 +98,7 @@ int unrez_resourcefork_openmem(struct unrez_resourcefork *rfork,
     rfork->attr = read_u16(mptr + 22);
     rfork->toff = toff = read_i16(mptr + 24);
     rfork->noff = read_i16(mptr + 26);
-    tcount = read_i16(mptr + 28);
-    tcount = tcount >= 0 ? tcount + 1 : 0;
+    tcount = read_i16(mptr + 28) + 1;
     if (toff < 0 || tcount * 8 + 2 > msize - toff) {
         return kUnrezErrInvalid;
     }
@@ -183,56 +186,37 @@ void unrez_resourcefork_close(struct unrez_resourcefork *rfork) {
     free(type);
 }
 
-int unrez_resourcefork_findrsrc(struct unrez_resourcefork *rfork,
-                                uint32_t type_code, int rsrc_id,
-                                const void **data, uint32_t *size) {
-    int type_index, rsrc_index, err;
-    type_index = unrez_resourcefork_findtype(rfork, type_code);
-    if (type_index < 0) {
-        return kUnrezErrResourceNotFound;
-    }
-    err = unrez_resourcefork_loadtype(rfork, type_index);
-    if (err != 0) {
-        return err;
-    }
-    rsrc_index = unrez_resourcefork_findid(rfork, type_index, rsrc_id);
-    if (rsrc_index < 0) {
-        return kUnrezErrResourceNotFound;
-    }
-    return unrez_resourcefork_getrsrc(rfork, type_index, rsrc_index, data,
-                                      size);
-}
-
 int unrez_resourcefork_findtype(struct unrez_resourcefork *rfork,
+                                struct unrez_resourcetype **type,
                                 uint32_t type_code) {
     struct unrez_resourcetype *types = rfork->types;
-    int32_t i, n = rfork->type_count;
+    int32_t err, i, n = rfork->type_count;
     for (i = 0; i < n; i++) {
         if (types[i].type_code == type_code) {
-            return i;
+            err = unrez_resourcefork_loadtype(rfork, &types[i]);
+            if (err != 0) {
+                return err;
+            }
+            *type = &types[i];
+            return 0;
         }
     }
-    return -1;
+    return kUnrezErrResourceNotFound;
 }
 
 int unrez_resourcefork_loadtype(struct unrez_resourcefork *rfork,
-                                int type_index) {
-    struct unrez_resourcetype *t;
+                                struct unrez_resourcetype *type) {
     struct unrez_resource *resources, *r;
     int32_t count, roff, i;
-    const unsigned char *ptr, *rptr;
-    if (type_index < 0 || type_index >= rfork->type_count) {
-        return EINVAL;
-    }
-    t = &rfork->types[type_index];
-    if (t->count == 0 || t->resources != NULL) {
+    const uint8_t *ptr, *rptr;
+    if (type->resources != NULL) {
         return 0;
     }
-    if (t->ref_offset < 0) {
+    if (type->ref_offset < 0) {
         return kUnrezErrInvalid;
     }
-    count = t->count;
-    roff = rfork->toff + t->ref_offset;
+    count = type->count;
+    roff = rfork->toff + type->ref_offset;
     if (count * 12 > rfork->map_size || roff > rfork->map_size - count * 12) {
         return kUnrezErrInvalid;
     }
@@ -241,7 +225,7 @@ int unrez_resourcefork_loadtype(struct unrez_resourcefork *rfork,
         return errno;
     }
     ptr = rfork->map + roff;
-    *(volatile const unsigned char *)ptr;
+    *(volatile const uint8_t *)ptr;
     for (i = 0; i < count; i++) {
         r = &resources[i];
         rptr = ptr + 12 * i;
@@ -252,55 +236,37 @@ int unrez_resourcefork_loadtype(struct unrez_resourcefork *rfork,
         r->offset = (rptr[5] << 16) | (rptr[6] << 8) | rptr[7];
         r->size = -1;
     }
-    t->resources = resources;
+    type->resources = resources;
     return 0;
 }
 
-int unrez_resourcefork_findid(struct unrez_resourcefork *rfork, int type_index,
-                              int rsrc_id) {
+int unrez_resourcefork_findrsrc(struct unrez_resourcefork *rfork,
+                                struct unrez_resource **rsrc,
+                                uint32_t type_code, int rsrc_id) {
     struct unrez_resourcetype *type;
-    struct unrez_resource *resources;
-    int32_t i, n;
-    if (type_index < 0 || type_index >= rfork->type_count) {
-        return -1;
+    struct unrez_resource *rsrcs;
+    int err, i, n;
+    err = unrez_resourcefork_findtype(rfork, &type, type_code);
+    if (err != 0) {
+        return err;
     }
-    type = &rfork->types[type_index];
+    rsrcs = type->resources;
     n = type->count;
-    resources = type->resources;
-    if (resources == NULL) {
-        return -1;
-    }
     for (i = 0; i < n; i++) {
-        if (resources[i].id == rsrc_id) {
-            return i;
+        if (rsrcs[i].id == rsrc_id) {
+            *rsrc = &rsrcs[i];
+            return 0;
         }
     }
-    return -1;
+    return kUnrezErrResourceNotFound;
 }
 
-int unrez_resourcefork_getrsrc(struct unrez_resourcefork *rfork, int type_index,
-                               int rsrc_index, const void **data,
+int unrez_resourcefork_getdata(struct unrez_resourcefork *rfork,
+                               struct unrez_resource *rsrc, const void **data,
                                uint32_t *size) {
-    struct unrez_resourcetype *type;
-    struct unrez_resource *r;
     int32_t roff, rsize, dsize;
-    int err;
-    if (type_index < 0 || type_index >= rfork->type_count) {
-        return EINVAL;
-    }
-    type = &rfork->types[type_index];
-    if (rsrc_index < 0 || rsrc_index >= type->count) {
-        return EINVAL;
-    }
-    if (type->resources == NULL) {
-        err = unrez_resourcefork_loadtype(rfork, type_index);
-        if (err != 0) {
-            return err;
-        }
-    }
-    r = &type->resources[rsrc_index];
-    roff = r->offset;
-    rsize = r->size;
+    roff = rsrc->offset;
+    rsize = rsrc->size;
     if (rsize < 0) {
         dsize = rfork->data_size;
         if (dsize < 4 || roff > dsize - 4 || roff < 0) {
@@ -310,9 +276,35 @@ int unrez_resourcefork_getrsrc(struct unrez_resourcefork *rfork, int type_index,
         if (rsize > dsize - 4 - roff || rsize < 0) {
             return kUnrezErrInvalid;
         }
-        r->size = rsize;
+        rsrc->size = rsize;
     }
     *data = rfork->data + roff + 4;
     *size = rsize;
+    return 0;
+}
+
+int unrez_resourcefork_getname(struct unrez_resourcefork *rfork,
+                               struct unrez_resource *rsrc, const char **name,
+                               size_t *size) {
+    const uint8_t *ndata;
+    size_t nsize, rem;
+    if (rsrc->name_offset < 0) {
+        *name = NULL;
+        *size = 0;
+        return 0;
+    }
+    if (rfork->noff < 0 || rsrc->name_offset >= rfork->map_size - rfork->noff) {
+        return kUnrezErrInvalid;
+    }
+    ndata = rfork->map + rfork->noff + rsrc->name_offset;
+    rem = rfork->map_size - rfork->noff - rsrc->name_offset;
+    nsize = *ndata;
+    ndata++;
+    rem--;
+    if (nsize > rem) {
+        return kUnrezErrInvalid;
+    }
+    *name = (const char *)ndata;
+    *size = nsize;
     return 0;
 }

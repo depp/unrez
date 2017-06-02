@@ -19,6 +19,7 @@ static void cat_usage(FILE *fp) {
 
 void cat_exec(int argc, char **argv) {
     struct unrez_resourcefork rfork;
+    struct unrez_resource *rsrc;
     const char *file;
     uint32_t type_code;
     int res_id, err;
@@ -42,9 +43,13 @@ void cat_exec(int argc, char **argv) {
     if (err != 0) {
         die_errf(err > 0 ? EX_NOINPUT : EX_DATAERR, err, "%s", file);
     }
-    err = unrez_resourcefork_findrsrc(&rfork, type_code, res_id, &data, &size);
+    err = unrez_resourcefork_findrsrc(&rfork, &rsrc, type_code, res_id);
     if (err != 0) {
-        unrez_type_tostring(stype, sizeof(stype), type_code);
+        die_errf(EX_DATAERR, err, "could not find resource %s #%d", stype,
+                 res_id);
+    }
+    err = unrez_resourcefork_getdata(&rfork, rsrc, &data, &size);
+    if (err != 0) {
         die_errf(EX_DATAERR, err, "could not load resource %s #%d", stype,
                  res_id);
     }

@@ -23,7 +23,7 @@ enum {
     kUnrezErrInvalid = -2,
     /* The file format contains unsupported features: version too new, etc. */
     kUnrezErrUnsupported = -3,
-    /* The resource was not found. */
+    /* The resource or type was not found. */
     kUnrezErrResourceNotFound = -4,
     /* The file does not have a resource fork. */
     kUnrezErrNoResourceFork = -5,
@@ -65,9 +65,9 @@ void unrez_to_macroman(char **outptr, char *outend, const char **inptr,
  *
  *  UNREZ_TYPE('P', 'I', 'C', 'T')
  */
-#define UNREZ_TYPE(x1, x2, x3, x4)                                       \
-    ((((uint32_t)(x1) & 0xff) << 24) | (((uint32_t)(x2) & 0xff) << 16) | \
-     (((uint32_t)(x3) & 0xff) << 8) | ((uint32_t)(x4) & 0xff))
+#define UNREZ_TYPE(x1, x2, x3, x4)                                   \
+    ((((uint32_t)(x1)&0xff) << 24) | (((uint32_t)(x2)&0xff) << 16) | \
+     (((uint32_t)(x3)&0xff) << 8) | ((uint32_t)(x4)&0xff))
 
 enum {
     /*
@@ -333,10 +333,10 @@ void unrez_forkedfile_close(struct unrez_forkedfile *forks);
  */
 struct unrez_resourcefork {
     /* Resource map section. */
-    const unsigned char *map;
+    const uint8_t *map;
     int32_t map_size;
     /* Data section. */
-    const unsigned char *data;
+    const uint8_t *data;
     int32_t data_size;
     /* fork attributes */
     uint32_t attr;
@@ -417,23 +417,12 @@ int unrez_resourcefork_openat(struct unrez_resourcefork *rfork, int dirfd,
 void unrez_resourcefork_close(struct unrez_resourcefork *rfork);
 
 /*
- * unrez_resourcefork_findrsrc finds a resource with the given type code and ID,
- * and gets the data. The returned pointer points into the resource fork's
- * memory. Returns 0 on success, or an error code on failure. This will load the
- * resource type if it is not loaded.
- *
- * This is a wrapper around findtype, loadtype, findid, and getrsrc below.
- */
-int unrez_resourcefork_findrsrc(struct unrez_resourcefork *rfork,
-                                uint32_t type_code, int rsrc_id,
-                                const void **data, uint32_t *size);
-
-/*
- * resourcefork_findtype finds a specific type in a resource fork. Returns the
- * index of the type, or -1 if the type is not found. The type must be a
- * four-character code.q
+ * resourcefork_findtype finds a specific type in a resource fork, and loads
+ * it. Returns 0 on success or an error code on failure. Returns
+ * kUnrezResourceErrNotFound if the type does not exist.
  */
 int unrez_resourcefork_findtype(struct unrez_resourcefork *rfork,
+                                struct unrez_resourcetype **type,
                                 uint32_t type_code);
 
 /*
@@ -441,24 +430,36 @@ int unrez_resourcefork_findtype(struct unrez_resourcefork *rfork,
  * type. Returns 0 if successful, or an error code on failure.
  */
 int unrez_resourcefork_loadtype(struct unrez_resourcefork *rfork,
-                                int type_index);
+                                struct unrez_resourcetype *type);
 
 /*
- * unrez_resourcefork_findrsrc finds a resource by its type and ID in a resource
- * fork. Returns the resource index, or -1 if the resource is not found. The
- * resource type must be loaded.
+ * unrez_resourcefork_findrsrc finds a resource with the given type code and ID.
+ * Returns 0 on success or an error code on failure. Returns
+ * kUnrezErrResourceNotFound if the resource does not exist.
  */
-int unrez_resourcefork_findid(struct unrez_resourcefork *rfork, int type_index,
-                              int rsrc_id);
+int unrez_resourcefork_findrsrc(struct unrez_resourcefork *rfork,
+                                struct unrez_resource **rsrc,
+                                uint32_t type_code, int rsrc_id);
 
 /*
- * unrez_resourcefork_get_rsrc gets the data for a resource. The returned
- * pointer points into the resource fork's memory. Returns 0 on success, or an
- * error code on failure. This will load the resource type if it is not loaded.
+ * unrez_resourcefork_getdata gets the data for a resource. The returned pointer
+ * points into the resource fork's memory. Returns 0 on success, or an error
+ * code on failure.
  */
-int unrez_resourcefork_getrsrc(struct unrez_resourcefork *rfork, int type_index,
-                               int rsrc_index, const void **data,
+int unrez_resourcefork_getdata(struct unrez_resourcefork *rfork,
+                               struct unrez_resource *rsrc, const void **data,
                                uint32_t *size);
+
+/*
+ * unrez_resourcefork_getname gets the name of a resource, if it exists. On
+ * success, sets name and size, which will be NULL and 0 if the name does not
+ * exist. If the name does exist, name and size will point to the name, which
+ * may contain NUL bytes. Returns 0 on success (including if the resource has no
+ * name), and a nonzero error code on failure.
+ */
+int unrez_resourcefork_getname(struct unrez_resourcefork *rfork,
+                               struct unrez_resource *rsrc, const char **name,
+                               size_t *size);
 
 /*
  * unrez_pict_opname gets the name of a picture opcode, or returns NULL if the

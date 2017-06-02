@@ -26,6 +26,7 @@ struct rsrc {
     char type[kUnrezTypeWidth];
     int id;
     int size;
+    struct unrez_resource *rsrc;
 };
 
 static int compare_size(const void *x, const void *y) {
@@ -74,9 +75,13 @@ static void ls_usage(FILE *fp) {
     fputs("usage: unrez ls [<options>] <file> [<type> [<id>]]\n", fp);
 }
 
-static void print_rlist(struct rlist *rlist) {
+static void print_rlist(struct unrez_resourcefork *rfork, struct rlist *rlist) {
     char ssize[SIZE_WIDTH], sid[8];
     struct rsrc *rp = rlist->rsrc, *re = rp + rlist->size, *p, *q, t;
+    const char *name, *nptr, *nend;
+    size_t namelen;
+    char uname[256 * 3], *uptr, *uend, *up;
+    int err;
     if (opt_sort != NULL) {
         qsort(rp, rlist->size, sizeof(*rp), opt_sort);
     }
@@ -98,10 +103,52 @@ static void print_rlist(struct rlist *rlist) {
         snprintf(sid, sizeof(sid), "#%d", rp->id);
         sprint_size(ssize, sizeof(ssize), rp->size);
         if (opt_flat) {
-            printf("%s  %7s  %10s\n", rp->type, sid, ssize);
+            printf("%s  %7s  %10s", rp->type, sid, ssize);
         } else {
-            printf("    %7s  %10s\n", sid, ssize);
+            printf("    %7s  %10s", sid, ssize);
         }
+        err = unrez_resourcefork_getname(rfork, rp->rsrc, &name, &namelen);
+        if (err != 0) {
+            fputc('\n', stdout);
+            die_errf(EX_DATAERR, err, "could not get name for resource %s %d",
+                     rp->type, rp->id);
+        }
+        if (namelen > 0) {
+            nptr = name;
+            nend = name + namelen;
+            uptr = uname;
+            uend = uname + sizeof(uname);
+            unrez_from_macroman(&uptr, uend, &nptr, nend);
+            fputs("  \"", stdout);
+            for (up = uname; up < uptr; up++) {
+                switch (*up) {
+                case '\n':
+                    fputs("\\n", stdout);
+                    break;
+                case '\r':
+                    fputs("\\r", stdout);
+                    break;
+                case '\t':
+                    fputs("\\t", stdout);
+                    break;
+                case '"':
+                    fputs("\\\"", stdout);
+                    break;
+                case '\\':
+                    fputs("\\\\", stdout);
+                    break;
+                default:
+                    if ((*up >= 0 && *up < 0x20) || *up == 0x7f) {
+                        printf("\\x%02x", *up);
+                    } else {
+                        fputc(*up, stdout);
+                    }
+                    break;
+                }
+            }
+            fputc('"', stdout);
+        }
+        fputc('\n', stdout);
     }
 }
 
@@ -109,12 +156,18 @@ static void ls_rsrc(struct unrez_resourcefork *rfork, uint32_t type_code,
                     int res_id) {
     char stype[kUnrezTypeWidth], ssize[SIZE_WIDTH];
     int err;
+    struct unrez_resource *rsrc;
     const void *data;
     uint32_t size;
     unrez_type_tostring(stype, sizeof(stype), type_code);
-    err = unrez_resourcefork_findrsrc(rfork, type_code, res_id, &data, &size);
+    err = unrez_resourcefork_findrsrc(rfork, &rsrc, type_code, res_id);
     if (err != 0) {
-        die_errf(EX_DATAERR, err, "could not load resource %s #%d", stype,
+        die_errf(EX_DATAERR, err, "could not find resource %s #%d", stype,
+                 res_id);
+    }
+    err = unrez_resourcefork_getdata(rfork, rsrc, &data, &size);
+    if (err != 0) {
+        die_errf(EX_DATAERR, err, "could not find resource %s #%d", stype,
                  res_id);
     }
     sprint_size(ssize, sizeof(ssize), size);
@@ -122,24 +175,18 @@ static void ls_rsrc(struct unrez_resourcefork *rfork, uint32_t type_code,
 }
 
 static void ls_type(struct rlist *rlist, struct unrez_resourcefork *rfork,
-                    int type_index) {
+                    struct unrez_resourcetype *type) {
     struct rsrc *r;
     char stype[kUnrezTypeWidth], ssize[SIZE_WIDTH];
-    struct unrez_resourcetype *type;
-    struct unrez_resource *rsrc;
-    int err, rsrc_index, rsrc_count, ncap;
+    struct unrez_resource *rsrcs, *rsrc;
+    int err, i, rsrc_count, ncap;
     const void *data;
     uint32_t size;
     int64_t total_size = 0;
     void *narr;
-    type = &rfork->types[type_index];
     unrez_type_tostring(stype, sizeof(stype), type->type_code);
-    err = unrez_resourcefork_loadtype(rfork, type_index);
-    if (err != 0) {
-        die_errf(EX_DATAERR, err, "could not load type %s", stype);
-    }
     rsrc_count = type->count;
-    rsrc = type->resources;
+    rsrcs = type->resources;
     if (rsrc_count > rlist->capacity - rlist->size) {
         ncap = rlist->capacity;
         if (ncap == 0) {
@@ -156,16 +203,17 @@ static void ls_type(struct rlist *rlist, struct unrez_resourcefork *rfork,
         rlist->capacity = ncap;
     }
     r = &rlist->rsrc[rlist->size];
-    for (rsrc_index = 0; rsrc_index < rsrc_count; rsrc_index++) {
-        err = unrez_resourcefork_getrsrc(rfork, type_index, rsrc_index, &data,
-                                         &size);
+    for (i = 0; i < rsrc_count; i++) {
+        rsrc = &rsrcs[i];
+        err = unrez_resourcefork_getdata(rfork, rsrc, &data, &size);
         if (err != 0) {
             die_errf(EX_DATAERR, err, "could not load resource %s #%d", stype,
-                     rsrc[rsrc_index].id);
+                     rsrc->id);
         }
         memcpy(r->type, stype, sizeof(r->type));
-        r->id = rsrc[rsrc_index].id;
+        r->id = rsrc->id;
         r->size = size;
+        r->rsrc = rsrc;
         total_size += size;
         r++;
     }
@@ -173,7 +221,7 @@ static void ls_type(struct rlist *rlist, struct unrez_resourcefork *rfork,
     if (!opt_flat) {
         sprint_size(ssize, sizeof(ssize), total_size);
         printf("type %s (%d resources, %s):\n", stype, rlist->size, ssize);
-        print_rlist(rlist);
+        print_rlist(rfork, rlist);
         fputc('\n', stdout);
         rlist->size = 0;
     }
@@ -181,11 +229,12 @@ static void ls_type(struct rlist *rlist, struct unrez_resourcefork *rfork,
 }
 
 void ls_exec(int argc, char **argv) {
-    char ssize[SIZE_WIDTH];
+    char ssize[SIZE_WIDTH], stype[kUnrezTypeWidth];
     const char *file;
     uint32_t type_code;
-    int err, res_id = 0, type_index, type_count;
+    int err, res_id = 0, i, type_count;
     struct unrez_resourcefork rfork;
+    struct unrez_resourcetype *types, *type;
     struct rlist rlist = {0};
     parse_options(kOptions, &argc, &argv);
     if (argc < 1 || argc > 3) {
@@ -210,17 +259,26 @@ void ls_exec(int argc, char **argv) {
     switch (argc) {
     default:
     case 1:
+        types = rfork.types;
         type_count = rfork.type_count;
-        for (type_index = 0; type_index < type_count; type_index++) {
-            ls_type(&rlist, &rfork, type_index);
+        for (i = 0; i < type_count; i++) {
+            type = &types[i];
+            err = unrez_resourcefork_loadtype(&rfork, type);
+            if (err != 0) {
+                unrez_type_tostring(stype, sizeof(stype), type->type_code);
+                die_errf(EX_DATAERR, err, "could not load resource type %s",
+                         stype);
+            }
+            ls_type(&rlist, &rfork, type);
         }
         break;
     case 2:
-        type_index = unrez_resourcefork_findtype(&rfork, type_code);
-        if (type_index < 0) {
-            dief(EX_DATAERR, "resource type not found: %s", argv[1]);
+        err = unrez_resourcefork_findtype(&rfork, &type, type_code);
+        if (err != 0) {
+            unrez_type_tostring(stype, sizeof(stype), type_code);
+            dief(EX_DATAERR, "could not load resource type %s", stype);
         }
-        ls_type(&rlist, &rfork, type_index);
+        ls_type(&rlist, &rfork, type);
         break;
     case 3:
         ls_rsrc(&rfork, type_code, res_id);
@@ -229,7 +287,7 @@ void ls_exec(int argc, char **argv) {
     if (opt_flat) {
         sprint_size(ssize, sizeof(ssize), rlist.total_size);
         printf("%d resources, %s:\n", rlist.size, ssize);
-        print_rlist(&rlist);
+        print_rlist(&rfork, &rlist);
     }
     free(rlist.rsrc);
     unrez_resourcefork_close(&rfork);

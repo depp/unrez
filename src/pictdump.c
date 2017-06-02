@@ -318,14 +318,11 @@ static void pict_data(const char *file) {
 }
 
 static void pict_rsrc1(const char *file, struct unrez_resourcefork *rfork,
-                       int type_index, int rsrc_index) {
-    struct unrez_resource *rsrc;
+                       struct unrez_resource *rsrc) {
     const void *data;
     uint32_t size;
     int err;
-    rsrc = &rfork->types[type_index].resources[rsrc_index];
-    err =
-        unrez_resourcefork_getrsrc(rfork, type_index, rsrc_index, &data, &size);
+    err = unrez_resourcefork_getdata(rfork, rsrc, &data, &size);
     if (err != 0) {
         die_errf(err > 0 ? EX_OSERR : EX_DATAERR, err, "%s 'PICT' #%d", file,
                  rsrc->id);
@@ -344,28 +341,29 @@ static void pict_rsrc1(const char *file, struct unrez_resourcefork *rfork,
 static void pict_rsrc(const char *file) {
     struct unrez_resourcefork rfork;
     struct unrez_resourcetype *type;
-    int err, type_index, count, rsrc_index;
+    struct unrez_resource *rsrc;
+    int err, i, count;
     err = unrez_resourcefork_open(&rfork, file);
     if (err != 0) {
         die_errf(err > 0 ? EX_NOINPUT : EX_DATAERR, err, "%s", file);
     }
-    type_index = unrez_resourcefork_findtype(&rfork, kPictCode);
-    if (type_index >= 0) {
-        type = &rfork.types[type_index];
-        count = type->count;
-        err = unrez_resourcefork_loadtype(&rfork, type_index);
+    if (opt_mode == kModeRsrc) {
+        err = unrez_resourcefork_findrsrc(&rfork, &rsrc, kPictCode, opt_id);
         if (err != 0) {
-            die_errf(err > 0 ? EX_OSERR : EX_DATAERR, err, "%s", file);
+            die_errf(EX_DATAERR, err, "could not load PICT %d", opt_id);
         }
-        if (opt_mode == kModeRsrc) {
-            rsrc_index = unrez_resourcefork_findid(&rfork, type_index, opt_id);
-            if (rsrc_index < 0) {
-                dief(EX_NOINPUT, "resource not found: 'PICT' #%d", opt_id);
+        pict_rsrc1(file, &rfork, rsrc);
+    } else {
+        err = unrez_resourcefork_findtype(&rfork, &type, kPictCode);
+        if (err != 0) {
+            if (err != kUnrezErrResourceNotFound) {
+                die_errf(EX_DATAERR, err, "could not load PICT resources");
             }
-            pict_rsrc1(file, &rfork, type_index, rsrc_index);
         } else {
-            for (rsrc_index = 0; rsrc_index < count; rsrc_index++) {
-                pict_rsrc1(file, &rfork, type_index, rsrc_index);
+            count = type->count;
+            rsrc = type->resources;
+            for (i = 0; i < count; i++) {
+                pict_rsrc1(file, &rfork, rsrc);
             }
         }
     }
